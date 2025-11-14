@@ -85,23 +85,36 @@ export default function LoadingScreen() {
     let isCancelled = false;
 
     const generatePlanData = async () => {
-      if (!assessment?.user_id) {
-        throw new Error('Assessment is missing user_id');
+      // Ensure assessment has user_id
+      const assessmentWithUserId = {
+        ...assessment,
+        user_id: assessment?.user_id || user.id,
+      };
+
+      if (!assessmentWithUserId.user_id) {
+        throw new Error('Assessment is missing user_id and user is not available');
       }
 
       // Try to generate 90-day AI plan first
       try {
-        const aiPlan = await generate90DayPlan(assessment);
+        console.log('Attempting to generate 90-day AI plan...');
+        const aiPlan = await generate90DayPlan(assessmentWithUserId);
+        console.log('90-day plan generated successfully:', aiPlan.plan?.programLengthDays || 'unknown length');
         await save(aiPlan);
+        console.log('Plan saved successfully');
         return;
       } catch (error) {
         console.error('AI 90-day plan generation failed, falling back to mock plan:', error);
+        if (error instanceof Error) {
+          console.error('Error message:', error.message);
+          console.error('Error stack:', error.stack);
+        }
       }
 
       // Fallback to mock plan if AI generation fails
       if (hasSupabase) {
         try {
-          const stubPlan = generateMockPlan(assessment);
+          const stubPlan = generateMockPlan(assessmentWithUserId);
           await save(stubPlan);
           return;
         } catch (error) {
@@ -109,7 +122,7 @@ export default function LoadingScreen() {
         }
       }
 
-      const fallbackPlan = generateMockPlan(assessment);
+      const fallbackPlan = generateMockPlan(assessmentWithUserId);
       await save(fallbackPlan);
     };
 

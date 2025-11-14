@@ -7,6 +7,7 @@ try {
     console.log('✅ .env file loaded successfully');
     console.log('EXPO_PUBLIC_SUPABASE_URL:', process.env.EXPO_PUBLIC_SUPABASE_URL ? 'SET' : 'NOT SET');
     console.log('EXPO_PUBLIC_SUPABASE_ANON_KEY:', process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ? 'SET' : 'NOT SET');
+    console.log('EXPO_PUBLIC_API_URL:', process.env.EXPO_PUBLIC_API_URL ? 'SET' : 'NOT SET');
   }
 } catch (e) {
   // dotenv might not be available in all environments

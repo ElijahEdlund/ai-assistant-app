@@ -106,15 +106,21 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
   }
 
   try {
-    const response = await fetch(`${API_URL}/generate-90day-plan`, {
+    const url = `${API_URL}/api/generate-90day-plan`;
+    console.log('Calling API endpoint:', url);
+    
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ assessment }),
     });
 
+    console.log('API response status:', response.status, response.statusText);
+
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`90-day plan generation failed: ${response.status} ${errorText}`);
+      console.error('API error response:', errorText.substring(0, 500));
+      throw new Error(`90-day plan generation failed: ${response.status} ${errorText.substring(0, 200)}`);
     }
 
     const generatedProgram = await response.json();
@@ -197,7 +203,7 @@ export async function generateCheckInResponse(
   }
 
   try {
-    const response = await fetch(`${API_URL}/coach-checkin`, {
+    const response = await fetch(`${API_URL}/api/coach-checkin`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
