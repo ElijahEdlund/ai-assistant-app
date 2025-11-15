@@ -86,6 +86,41 @@ const ProgramResponseSchema = z.object({
 
 type GeneratedProgram = z.infer<typeof ProgramResponseSchema>;
 
+// Normalize OpenAI's response to handle inconsistent formatting
+// Sometimes OpenAI returns strings instead of arrays
+function normalizeOpenAIResponse(parsed: any): any {
+  // Normalize progressionRules - convert string to array
+  if (parsed.training?.generalGuidelines?.progressionRules) {
+    const rules = parsed.training.generalGuidelines.progressionRules;
+    if (typeof rules === 'string') {
+      // Split by newlines or semicolons, or just wrap in array
+      parsed.training.generalGuidelines.progressionRules = rules
+        .split(/\n|;/)
+        .map((r: string) => r.trim())
+        .filter((r: string) => r.length > 0);
+    }
+  }
+
+  // Normalize ingredients arrays in nutrition days
+  if (parsed.nutrition?.days) {
+    for (const day of parsed.nutrition.days) {
+      if (day.meals) {
+        for (const meal of day.meals) {
+          if (meal.ingredients && typeof meal.ingredients === 'string') {
+            // Split ingredients string into array (handle comma or newline separated)
+            meal.ingredients = meal.ingredients
+              .split(/,|\n/)
+              .map((ing: string) => ing.trim())
+              .filter((ing: string) => ing.length > 0);
+          }
+        }
+      }
+    }
+  }
+
+  return parsed;
+}
+
 export interface Generate90DayPlanRequest {
   assessment: Assessment;
 }
@@ -138,8 +173,11 @@ export async function generate90DayPlan(request: Generate90DayPlanRequest): Prom
       const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       const parsed = JSON.parse(jsonContent);
 
+      // Normalize the response to handle OpenAI's inconsistent formatting
+      const normalized = normalizeOpenAIResponse(parsed);
+
       // Validate with Zod
-      const validated = ProgramResponseSchema.parse(parsed);
+      const validated = ProgramResponseSchema.parse(normalized);
       return validated;
     } catch (error) {
       attempts++;
@@ -192,13 +230,13 @@ function buildPrompt(assessment: Assessment): string {
     `   - Each day should have dayNumber (1-90), label (e.g., "Push A", "Legs", "Rest Day"), isRestDay boolean, primaryFocus, and exercises`,
     `   - Exercises should include: name, sets, reps (number or string like "8-10"), optional rir (0-3), restSeconds, tempo, notes`,
     `   - Include rest days appropriately`,
-    `   - Provide generalGuidelines with progressionRules, warmupGuidelines, deloadInstructions`,
+    `   - Provide generalGuidelines with progressionRules (MUST be an array of strings like ["Rule 1", "Rule 2"]), warmupGuidelines, deloadInstructions`,
     '',
     `3. Nutrition:`,
     `   - Provide globalGuidelines: goalType, calorieStrategy, proteinTargetRule, notes`,
     `   - For each of the 90 days, provide:`,
     `     * dayNumber (1-90), dayType ("training" or "rest"), macros (calories, proteinG, carbsG, fatsG)`,
-    `     * meals array with: name, timeOfDay, calories, proteinG, carbsG, fatsG, ingredients, instructions`,
+    `     * meals array with: name, timeOfDay, calories, proteinG, carbsG, fatsG, ingredients (MUST be an array of strings like ["ingredient1", "ingredient2"]), instructions`,
     `   - Adjust macros based on training vs rest days`,
     `   - Make meals practical and easy to prepare`,
     '',
@@ -215,11 +253,11 @@ function buildPrompt(assessment: Assessment): string {
     `  "training": {`,
     `    "phases": [{"name": "Phase 1", "weeks": [1,2,3,4], "goal": "..."}],`,
     `    "weeks": [{"weekNumber": 1, "focus": "...", "days": [{"dayNumber": 1, "label": "...", "isRestDay": false, "primaryFocus": "...", "exercises": [...]}]}],`,
-    `    "generalGuidelines": {...}`,
+    `    "generalGuidelines": {"progressionRules": ["Rule 1", "Rule 2"], "warmupGuidelines": "...", "deloadInstructions": "..."}`,
     `  },`,
     `  "nutrition": {`,
     `    "globalGuidelines": {...},`,
-    `    "days": [{"dayNumber": 1, "dayType": "training", "calories": ..., "proteinG": ..., "carbsG": ..., "fatsG": ..., "meals": [...]}]`,
+    `    "days": [{"dayNumber": 1, "dayType": "training", "calories": ..., "proteinG": ..., "carbsG": ..., "fatsG": ..., "meals": [{"name": "...", "ingredients": ["ing1", "ing2"], ...}]}]`,
     `  }`,
     `}`,
   );
