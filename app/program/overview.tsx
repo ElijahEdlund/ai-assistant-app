@@ -1,5 +1,5 @@
-import { View, YStack, Text, XStack, Card, ScrollView, Button } from 'tamagui';
-import { useEffect, useState } from 'react';
+import { View, YStack, Text, XStack, Card, ScrollView, Button, TouchableOpacity } from 'tamagui';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { Drawer } from '../../components/Drawer';
 import { useProgramStore } from '../../lib/state/program';
@@ -8,13 +8,18 @@ import { resetAll } from '../../lib/data/dataClient';
 import { Alert } from 'react-native';
 import dayjs from 'dayjs';
 import { useDisableSwipeBack } from '../../lib/gestures/swipeBack';
+import { WeekStrip } from '../../components/schedule/WeekStrip';
+import { buildWeekDays, getWorkoutForDate } from '../../lib/program/selectors';
+import { getDayNumber, getTrainingForDay } from '../../lib/program/90dayHelpers';
+import { WorkoutCard } from '../../components/workout/WorkoutCard';
 
 export default function ProgramOverview() {
   const router = useRouter();
   const { plan, load } = useProgramStore();
   const { assessment } = useAssessmentStore();
-  const [todayWorkout, setTodayWorkout] = useState<any>(null);
-  const [weekPreview, setWeekPreview] = useState<any[]>([]);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const today = dayjs().format('YYYY-MM-DD');
+  const [selectedDate, setSelectedDate] = useState(today);
 
   useDisableSwipeBack();
 
@@ -22,26 +27,74 @@ export default function ProgramOverview() {
     load();
   }, [load]);
 
-  useEffect(() => {
-    if (plan?.plan) {
-      const today = dayjs().format('YYYY-MM-DD');
-      const workout = plan.plan.workouts?.find((w: any) => w.scheduledDate === today);
-      setTodayWorkout(workout);
-
-      // Get next 7 days
-      const preview = [];
-      for (let i = 0; i < 7; i++) {
-        const date = dayjs().add(i, 'day').format('YYYY-MM-DD');
-        const dayWorkout = plan.plan.workouts?.find((w: any) => w.scheduledDate === date);
-        preview.push({
-          date,
-          dayName: dayjs(date).format('ddd'),
-          workout: dayWorkout,
-        });
+  const weekDays = useMemo(() => {
+    if (!plan) return [];
+    // Build week days for the 90-day program
+    const programStart = plan.program_start_date;
+    if (!programStart) return buildWeekDays(plan, weekOffset);
+    
+    // Calculate which week we're in (0-12 for 90 days)
+    const startDate = dayjs(programStart);
+    const todayDate = dayjs();
+    const daysSinceStart = todayDate.diff(startDate, 'day');
+    const currentWeek = Math.max(0, Math.floor(daysSinceStart / 7)) + weekOffset;
+    
+    // Ensure we don't go beyond 90 days
+    const maxWeek = Math.floor(89 / 7); // Week 0-12 for 90 days
+    const clampedWeek = Math.max(0, Math.min(currentWeek, maxWeek));
+    
+    // Build 7 days starting from the calculated week
+    const weekStart = startDate.add(clampedWeek * 7, 'day');
+    const days: any[] = [];
+    
+    for (let i = 0; i < 7; i++) {
+      const date = weekStart.add(i, 'day');
+      const dateStr = date.format('YYYY-MM-DD');
+      const dayNumber = getDayNumber(plan, dateStr);
+      
+      let workouts: any[] = [];
+      if (dayNumber) {
+        const trainingDay = getTrainingForDay(plan, dayNumber);
+        if (trainingDay && trainingDay.isWorkoutDay && trainingDay.workout?.exercises) {
+          workouts = [{
+            id: `day-${dayNumber}`,
+            name: trainingDay.label,
+            scheduledDate: dateStr,
+            exercises: trainingDay.workout.exercises.map((ex: any) => ({
+              name: ex.name,
+              sets: ex.sets,
+              reps: ex.reps,
+              rest: ex.restSeconds ? `${ex.restSeconds}s` : '60s',
+            })),
+            tag: trainingDay.focus,
+            preview: `${trainingDay.workout.exercises.length} exercises`,
+          }];
+        }
       }
-      setWeekPreview(preview);
+      
+      days.push({
+        date: dateStr,
+        label: date.format('ddd'),
+        dayOfMonth: date.format('DD'),
+        isToday: date.isSame(dayjs(), 'day'),
+        workouts,
+      });
     }
-  }, [plan]);
+    
+    return days;
+  }, [plan, weekOffset]);
+
+  const selectedDayData = useMemo(() => {
+    if (!plan) return null;
+    const dayNumber = getDayNumber(plan, selectedDate);
+    if (!dayNumber) return null;
+    return getTrainingForDay(plan, dayNumber);
+  }, [plan, selectedDate]);
+
+  const selectedWorkout = useMemo(() => {
+    if (!selectedDayData || !selectedDayData.isWorkoutDay) return null;
+    return getWorkoutForDate(plan, selectedDate);
+  }, [plan, selectedDate, selectedDayData]);
 
   const handleRetakeAssessment = () => {
     Alert.alert(
@@ -72,74 +125,68 @@ export default function ProgramOverview() {
             Welcome, {name}
           </Text>
           <Text fontSize="$5" color="$placeholderColor" textAlign="center" marginBottom="$4">
-            Week 1 of {plan?.plan?.weeks || 12}
+            Your 90-Day Program
           </Text>
 
-          {todayWorkout && (
-            <Card elevate size="$4" bordered backgroundColor="$backgroundHover" borderColor="$borderColor">
-              <Card.Header padded>
-                <YStack gap="$3">
-                  <Text fontSize="$7" fontWeight="600">
-                    Today's Workout
-                  </Text>
-                  <Text fontSize="$6" fontWeight="bold" color="$color">
-                    {todayWorkout.name}
-                  </Text>
-                  <YStack gap="$2" marginTop="$2">
-                    {todayWorkout.exercises?.map((ex: any, idx: number) => (
-                      <Text key={idx} fontSize="$4" color="$placeholderColor">
-                        • {ex.name} - {ex.sets} sets × {ex.reps} reps
-                      </Text>
-                    ))}
-                  </YStack>
-                </YStack>
-              </Card.Header>
-            </Card>
+          {/* Calendar Bar */}
+          {weekDays.length > 0 && (
+            <YStack gap="$3">
+              <WeekStrip
+                days={weekDays}
+                selectedDate={selectedDate}
+                onSelect={setSelectedDate}
+                onPrevWeek={() => setWeekOffset((prev) => Math.max(prev - 1, -12))}
+                onNextWeek={() => setWeekOffset((prev) => Math.min(prev + 1, 12))}
+              />
+            </YStack>
           )}
 
-          <YStack gap="$3">
-            <Text fontSize="$7" fontWeight="bold">
-              Week Preview
-            </Text>
-            <XStack gap="$2" flexWrap="wrap">
-              {weekPreview.map((day, idx) => (
-                <Card
-                  key={idx}
-                  size="$3"
-                  bordered
-                  backgroundColor={day.workout ? "$backgroundFocus" : "$backgroundHover"}
-                  borderColor="$borderColor"
-                  minWidth={80}
-                >
+          {/* Current Day Routine */}
+          {selectedDayData && (
+            <YStack gap="$3">
+              {selectedDayData.isWorkoutDay && selectedWorkout ? (
+                <WorkoutCard
+                  title={selectedWorkout.name}
+                  tag={selectedWorkout.tag}
+                  exercises={selectedWorkout.exercises}
+                  CTA={{
+                    label: 'View workout details',
+                    onPress: () => router.push(`/program/workout/${selectedWorkout.id}`),
+                  }}
+                />
+              ) : (
+                <Card size="$4" bordered backgroundColor="$backgroundHover" borderColor="$borderColor">
                   <Card.Header padded>
-                    <YStack gap="$2" alignItems="center">
-                      <Text fontSize="$3" color="$placeholderColor">
-                        {day.dayName}
+                    <YStack gap="$3">
+                      <Text fontSize="$6" fontWeight="600">
+                        Rest Day
                       </Text>
-                      <Text fontSize="$4" fontWeight="600" textAlign="center">
-                        {day.workout ? 'Workout' : 'Rest'}
-                      </Text>
+                      {selectedDayData.recovery?.suggestions && (
+                        <YStack gap="$2">
+                          <Text fontSize="$4" color="$placeholderColor">
+                            Recovery suggestions:
+                          </Text>
+                          {selectedDayData.recovery.suggestions.map((suggestion: string, idx: number) => (
+                            <Text key={idx} fontSize="$4" color="$placeholderColor">
+                              • {suggestion}
+                            </Text>
+                          ))}
+                        </YStack>
+                      )}
                     </YStack>
                   </Card.Header>
                 </Card>
-              ))}
-            </XStack>
-          </YStack>
+              )}
+            </YStack>
+          )}
 
           <YStack gap="$3" marginTop="$4">
-            <Button
-              size="$5"
-              theme="active"
-              onPress={() => router.push('/program/schedule')}
-            >
-              <Text color="$color" fontSize="$5">See my plan</Text>
-            </Button>
             <Button
               size="$4"
               theme="alt1"
               onPress={() => router.push('/calendar')}
             >
-              <Text color="$color" fontSize="$4">View calendar</Text>
+              <Text color="$color" fontSize="$4">View full calendar</Text>
             </Button>
             <Button
               size="$4"

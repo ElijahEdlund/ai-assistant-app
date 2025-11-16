@@ -99,6 +99,17 @@ export interface Generate90DayPlanResponse {
   nutrition: any;
 }
 
+/**
+ * Maps a day number (1-90) to the corresponding template day index (1-14)
+ * Uses modulo logic: templateDayIndex = ((dayNumber - 1) % 14) + 1
+ */
+export function getTemplateDayIndex(dayNumber: number): number {
+  if (dayNumber < 1 || dayNumber > 90) {
+    throw new Error(`Day number must be between 1 and 90, got ${dayNumber}`);
+  }
+  return ((dayNumber - 1) % 14) + 1;
+}
+
 export async function generate90DayPlan(assessment: Assessment): Promise<WorkoutPlan> {
   const API_URL = process.env.EXPO_PUBLIC_API_URL;
   if (!API_URL) {
@@ -130,52 +141,58 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
     startDate.setDate(startDate.getDate() + 1);
     const programStartDate = startDate.toISOString().split('T')[0];
 
-    // Transform the generated program into our WorkoutPlan format
-    // Map training days to workouts with scheduled dates
+    // Transform the 2-week template into a 90-day program
+    // The template has 14 days, we'll map days 1-90 to template days 1-14 using modulo
+    const templateDays = generatedProgram.training || [];
+    
+    // Build workouts for all 90 days
     const workouts: any[] = [];
-    const nutritionDays: any[] = generatedProgram.nutrition?.days || [];
-
-    // Build workouts from training weeks
-    // Map dayNumber (1-90) to actual calendar dates based on program start
-    if (generatedProgram.training?.weeks) {
-      for (const week of generatedProgram.training.weeks) {
-        for (const day of week.days) {
-          if (!day.isRestDay && day.exercises && day.exercises.length > 0) {
-            // Calculate date based on dayNumber (day 1 = startDate, day 2 = startDate + 1, etc.)
-            const workoutDate = new Date(startDate);
-            workoutDate.setDate(workoutDate.getDate() + (day.dayNumber - 1));
-            
-            workouts.push({
-              id: `day-${day.dayNumber}`,
-              week: week.weekNumber,
-              day: day.dayNumber,
-              name: day.label,
-              focus: day.primaryFocus,
-              scheduledDate: workoutDate.toISOString().split('T')[0],
-              exercises: day.exercises.map((ex: any) => ({
-                name: ex.name,
-                sets: ex.sets,
-                reps: ex.reps,
-                rest: ex.restSeconds ? `${ex.restSeconds}s` : '60s',
-                tempo: ex.tempo,
-                notes: ex.notes,
-                rir: ex.rir,
-              })),
-            });
-          }
-        }
+    
+    for (let dayNumber = 1; dayNumber <= 90; dayNumber++) {
+      const templateDayIndex = getTemplateDayIndex(dayNumber);
+      const templateDay = templateDays.find((d: any) => d.dayIndex === templateDayIndex) || templateDays[templateDayIndex - 1];
+      
+      if (templateDay && templateDay.isWorkoutDay && templateDay.workout?.exercises) {
+        // Calculate date for this day
+        const workoutDate = new Date(startDate);
+        workoutDate.setDate(workoutDate.getDate() + (dayNumber - 1));
+        
+        workouts.push({
+          id: `day-${dayNumber}`,
+          day: dayNumber,
+          name: templateDay.label,
+          focus: templateDay.focus,
+          scheduledDate: workoutDate.toISOString().split('T')[0],
+          exercises: templateDay.workout.exercises.map((ex: any) => ({
+            name: ex.name,
+            sets: ex.sets,
+            reps: ex.reps,
+            rest: ex.restSeconds ? `${ex.restSeconds}s` : '60s',
+            equipment: ex.equipment,
+            tutorial: ex.tutorial || {
+              howTo: ex.notes || 'Follow proper form and technique.',
+              cues: [],
+              commonMistakes: [],
+            },
+          })),
+        });
       }
     }
 
-    // Create the plan structure
+    // Create the plan structure with the 2-week template
     const plan: WorkoutPlan = {
       user_id: assessment.user_id,
       program_start_date: programStartDate,
       plan: {
         programLengthDays: 90,
         startDate: programStartDate,
-        training: generatedProgram.training,
-        nutrition: generatedProgram.nutrition,
+        // Store the 2-week template
+        template: {
+          meta: generatedProgram.meta,
+          training: templateDays,
+          nutrition: generatedProgram.nutrition,
+        },
+        // Store workouts mapped to dates for easy lookup
         workouts,
         goals: assessment.goals,
         weeklyDays: assessment.weekly_days,

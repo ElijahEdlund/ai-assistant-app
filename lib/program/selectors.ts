@@ -6,7 +6,19 @@ export interface NormalizedWorkout {
   id: string;
   name: string;
   scheduledDate?: string;
-  exercises: Array<{ name: string; sets?: number; reps?: number; rest?: string; notes?: string }>;
+  exercises: Array<{ 
+    name: string; 
+    sets?: number; 
+    reps?: number | string; 
+    rest?: string; 
+    notes?: string;
+    equipment?: string;
+    tutorial?: {
+      howTo: string;
+      cues: string[];
+      commonMistakes: string[];
+    };
+  }>;
   tag: string;
   preview?: string;
   week?: number;

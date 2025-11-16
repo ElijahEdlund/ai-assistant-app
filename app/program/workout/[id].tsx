@@ -84,6 +84,16 @@ export default function WorkoutDetailScreen() {
     }
   };
 
+  const handleExercisePress = (exercise: any) => {
+    router.push({
+      pathname: '/program/exercise/[name]',
+      params: {
+        name: exercise.name,
+        workoutId: workout.id,
+      },
+    });
+  };
+
   return (
     <View flex={1} backgroundColor="$background">
       <WorkoutDetail
@@ -95,6 +105,7 @@ export default function WorkoutDetailScreen() {
         onToggleComplete={handleToggleCompletion}
         onChangeNote={setNoteDraft}
         onSaveNote={handleSaveNote}
+        onExercisePress={handleExercisePress}
         footer={
           <YStack gap="$3">
             <Button

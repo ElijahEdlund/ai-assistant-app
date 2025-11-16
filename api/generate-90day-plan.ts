@@ -43,24 +43,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     console.log('Generating 90-day plan for assessment...');
-    const plan = await generate90DayPlan({ assessment });
+    const generatedProgram = await generate90DayPlan({ assessment });
     
     // Print the entire plan in a readable format
     console.log('\n========== FULL 90-DAY PLAN ==========');
-    console.log(JSON.stringify(plan, null, 2));
+    console.log(JSON.stringify(generatedProgram, null, 2));
     console.log('========== END OF PLAN ==========\n');
     
     // Also log summary information
     console.log('Plan Summary:');
-    console.log('- Program Length:', plan.programLengthDays, 'days');
-    console.log('- Training Phases:', plan.training?.phases?.length || 0);
-    console.log('- Training Weeks:', plan.training?.weeks?.length || 0);
-    console.log('- Nutrition Days:', plan.nutrition?.days?.length || 0);
-    console.log('- Total Workouts:', plan.training?.weeks?.reduce((acc: number, week: any) => 
-      acc + (week.days?.filter((d: any) => !d.isRestDay).length || 0), 0) || 0);
+    console.log('- Template Days:', generatedProgram.training?.length || 0);
+    console.log('- Workout Days:', generatedProgram.training?.filter((d: any) => d.isWorkoutDay).length || 0);
+    console.log('- Rest Days:', generatedProgram.training?.filter((d: any) => !d.isWorkoutDay).length || 0);
+    console.log('- Nutrition Targets:', generatedProgram.nutrition?.dailyMacroTargets ? 'Set' : 'Not set');
     
     console.log('90-day plan generated successfully');
-    return res.status(200).json(plan);
+    return res.status(200).json(generatedProgram);
   } catch (error) {
     console.error('Error generating 90-day plan:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';

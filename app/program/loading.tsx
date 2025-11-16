@@ -150,9 +150,6 @@ export default function LoadingScreen() {
   return (
     <View flex={1} backgroundColor="$background">
       <YStack flex={1} justifyContent="center" alignItems="center" gap="$4">
-        <Text fontSize="$4" color="$placeholderColor">
-          {statusMessages[statusIndex]}
-        </Text>
         <View
           style={{
             width: 260,

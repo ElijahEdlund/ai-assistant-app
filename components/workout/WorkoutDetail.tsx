@@ -1,16 +1,33 @@
 import { ReactNode } from 'react';
-import { ScrollView } from 'react-native';
+import { ScrollView, TouchableOpacity, View } from 'react-native';
 import { YStack, Text, Card, Button, Input } from 'tamagui';
+
+interface ExerciseTutorial {
+  howTo: string;
+  cues: string[];
+  commonMistakes: string[];
+}
+
+interface Exercise {
+  name: string;
+  sets?: number;
+  reps?: number | string;
+  rest?: string;
+  notes?: string;
+  equipment?: string;
+  tutorial?: ExerciseTutorial;
+}
 
 interface WorkoutDetailProps {
   title: string;
   tag?: string;
-  exercises: Array<{ name: string; sets?: number; reps?: number; rest?: string; notes?: string }>;
+  exercises: Exercise[];
   completed: boolean;
   note: string;
   onToggleComplete: () => void;
   onChangeNote: (value: string) => void;
   onSaveNote: () => void;
+  onExercisePress?: (exercise: Exercise) => void;
   footer?: ReactNode;
 }
 
@@ -23,8 +40,53 @@ export function WorkoutDetail({
   onToggleComplete,
   onChangeNote,
   onSaveNote,
+  onExercisePress,
   footer,
 }: WorkoutDetailProps) {
+  const ExerciseCard = ({ exercise, index }: { exercise: Exercise; index: number }) => {
+    const content = (
+      <Card size="$4" bordered backgroundColor="$backgroundHover" borderColor="$borderColor">
+        <Card.Header padded>
+          <YStack gap="$2">
+            <Text fontSize="$6" fontWeight="600">
+              {exercise.name}
+            </Text>
+            <Text fontSize="$4" color="$placeholderColor">
+              {exercise.sets ? `${exercise.sets} sets` : ''}{' '}
+              {exercise.reps ? `× ${exercise.reps} reps` : ''}
+              {exercise.rest ? ` • Rest ${exercise.rest}` : ''}
+            </Text>
+            {exercise.equipment && (
+              <Text fontSize="$3" color="$placeholderColor">
+                Equipment: {exercise.equipment}
+              </Text>
+            )}
+            {exercise.tutorial?.howTo && (
+              <Text fontSize="$3" color="$placeholderColor" numberOfLines={2}>
+                {exercise.tutorial.howTo}
+              </Text>
+            )}
+            {onExercisePress && exercise.tutorial && (
+              <Text fontSize="$3" color="#7AF0B3" marginTop="$2">
+                Tap for full instructions →
+              </Text>
+            )}
+          </YStack>
+        </Card.Header>
+      </Card>
+    );
+
+    if (onExercisePress && exercise.tutorial) {
+      return (
+        <TouchableOpacity key={index} onPress={() => onExercisePress(exercise)} activeOpacity={0.7}>
+          {content}
+        </TouchableOpacity>
+      );
+    }
+
+    return <View key={index}>{content}</View>;
+  };
+
   return (
     <ScrollView contentContainerStyle={{ padding: 16 }}>
       <YStack gap="$5">
@@ -46,25 +108,7 @@ export function WorkoutDetail({
 
         <YStack gap="$3">
           {exercises.map((exercise, idx) => (
-            <Card key={idx} size="$4" bordered backgroundColor="$backgroundHover" borderColor="$borderColor">
-              <Card.Header padded>
-                <YStack gap="$2">
-                  <Text fontSize="$6" fontWeight="600">
-                    {exercise.name}
-                  </Text>
-                  <Text fontSize="$4" color="$placeholderColor">
-                    {exercise.sets ? `${exercise.sets} sets` : ''}{' '}
-                    {exercise.reps ? `× ${exercise.reps} reps` : ''}
-                    {exercise.rest ? ` • Rest ${exercise.rest}` : ''}
-                  </Text>
-                  {exercise.notes && (
-                    <Text fontSize="$3" color="$placeholderColor">
-                      {exercise.notes}
-                    </Text>
-                  )}
-                </YStack>
-              </Card.Header>
-            </Card>
+            <ExerciseCard key={idx} exercise={exercise} index={idx} />
           ))}
         </YStack>
 

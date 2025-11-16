@@ -27,24 +27,47 @@ export function getDateForDayNumber(plan: WorkoutPlan | null, dayNumber: number)
 
 /**
  * Get training data for a specific day number
+ * Maps day 1-90 to the 2-week template using modulo logic
  */
 export function getTrainingForDay(plan: WorkoutPlan | null, dayNumber: number): any {
-  if (!plan?.plan?.training?.weeks) return null;
+  if (!plan?.plan?.template?.training) return null;
   
-  for (const week of plan.plan.training.weeks) {
-    const day = week.days?.find((d: any) => d.dayNumber === dayNumber);
-    if (day) return day;
-  }
-  return null;
+  // Map day number to template day index (1-14)
+  const templateDayIndex = ((dayNumber - 1) % 14) + 1;
+  const templateDays = plan.plan.template.training;
+  
+  // Find the template day
+  const templateDay = templateDays.find((d: any) => d.dayIndex === templateDayIndex) || templateDays[templateDayIndex - 1];
+  
+  if (!templateDay) return null;
+  
+  // Return template day with dayNumber for compatibility
+  return {
+    ...templateDay,
+    dayNumber, // Add dayNumber for backward compatibility
+    isRestDay: !templateDay.isWorkoutDay,
+    primaryFocus: templateDay.focus,
+    exercises: templateDay.workout?.exercises || [],
+  };
 }
 
 /**
  * Get nutrition data for a specific day number
+ * Returns the daily macro targets (same for all days in the new structure)
  */
 export function getNutritionForDay(plan: WorkoutPlan | null, dayNumber: number): any {
-  if (!plan?.plan?.nutrition?.days) return null;
+  if (!plan?.plan?.template?.nutrition?.dailyMacroTargets) return null;
   
-  return plan.plan.nutrition.days.find((d: any) => d.dayNumber === dayNumber) || null;
+  // In the new structure, all days have the same macro targets
+  return {
+    dayNumber,
+    dayType: 'training', // Could be determined from training day if needed
+    calories: plan.plan.template.nutrition.dailyMacroTargets.calories,
+    proteinG: plan.plan.template.nutrition.dailyMacroTargets.proteinGrams,
+    carbsG: plan.plan.template.nutrition.dailyMacroTargets.carbsGrams,
+    fatsG: plan.plan.template.nutrition.dailyMacroTargets.fatsGrams,
+    notes: plan.plan.template.nutrition.dailyMacroTargets.notes,
+  };
 }
 
 /**
