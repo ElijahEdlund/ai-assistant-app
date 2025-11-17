@@ -11,5 +11,10 @@
       "src": "/api/(.*)",
       "dest": "/api/$1.ts"
     }
-  ]
+  ],
+  "functions": {
+    "api/generate-90day-plan.ts": {
+      "maxDuration": 60
+    }
+  }
 }

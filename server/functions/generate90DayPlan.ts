@@ -6,7 +6,7 @@ if (!OPENAI_API_KEY) {
   throw new Error('OPENAI_API_KEY is not set');
 }
 
-// Schema for the 2-week template program response
+// Schema for skeleton (tutorials optional)
 const ExerciseTutorialSchema = z.object({
   howTo: z.string(),
   cues: z.array(z.string()),
@@ -19,7 +19,7 @@ const ExerciseSchema = z.object({
   reps: z.union([z.number().int().min(1), z.string().min(1)]),
   restSeconds: z.number().int().min(30).optional(),
   equipment: z.string().optional(),
-  tutorial: ExerciseTutorialSchema,
+  tutorial: ExerciseTutorialSchema.optional(),
 });
 
 const TrainingDaySchema = z.object({
@@ -59,7 +59,25 @@ const ProgramResponseSchema = z.object({
   nutrition: NutritionSchema,
 });
 
-type GeneratedProgram = z.infer<typeof ProgramResponseSchema>;
+// Schema for final plan (tutorials required)
+const FinalExerciseSchema = ExerciseSchema.extend({
+  tutorial: ExerciseTutorialSchema,
+});
+
+const FinalTrainingDaySchema = TrainingDaySchema.extend({
+  workout: z.object({
+    estimatedDurationMinutes: z.number().int().min(1),
+    notes: z.string().optional(),
+    exercises: z.array(FinalExerciseSchema),
+  }).optional(),
+});
+
+const FinalProgramResponseSchema = ProgramResponseSchema.extend({
+  training: z.array(FinalTrainingDaySchema).length(14),
+});
+
+type GeneratedProgram = z.infer<typeof FinalProgramResponseSchema>;
+type SkeletonProgram = z.infer<typeof ProgramResponseSchema>;
 
 // Normalize OpenAI's response to handle inconsistent formatting
 function normalizeOpenAIResponse(parsed: any): any {
@@ -88,26 +106,21 @@ function normalizeOpenAIResponse(parsed: any): any {
     }));
   }
 
-  // Normalize exercise tutorials
+  // Normalize exercise tutorials (only if present)
   if (parsed.training && Array.isArray(parsed.training)) {
     for (const day of parsed.training) {
       if (day.workout?.exercises) {
         for (const exercise of day.workout.exercises) {
-          if (!exercise.tutorial) {
-            exercise.tutorial = {
-              howTo: exercise.notes || 'Follow proper form and technique.',
-              cues: [],
-              commonMistakes: [],
-            };
-          }
-          if (typeof exercise.tutorial.howTo === 'undefined') {
-            exercise.tutorial.howTo = exercise.notes || 'Follow proper form and technique.';
-          }
-          if (!Array.isArray(exercise.tutorial.cues)) {
-            exercise.tutorial.cues = [];
-          }
-          if (!Array.isArray(exercise.tutorial.commonMistakes)) {
-            exercise.tutorial.commonMistakes = [];
+          if (exercise.tutorial) {
+            if (typeof exercise.tutorial.howTo === 'undefined') {
+              exercise.tutorial.howTo = exercise.notes || 'Follow proper form and technique.';
+            }
+            if (!Array.isArray(exercise.tutorial.cues)) {
+              exercise.tutorial.cues = [];
+            }
+            if (!Array.isArray(exercise.tutorial.commonMistakes)) {
+              exercise.tutorial.commonMistakes = [];
+            }
           }
         }
       }
@@ -135,34 +148,275 @@ export interface Generate90DayPlanRequest {
   assessment: Assessment;
 }
 
-export async function generate90DayPlan(request: Generate90DayPlanRequest): Promise<GeneratedProgram> {
-  const { assessment } = request;
-  const prompt = buildPrompt(assessment);
+interface ExerciseRef {
+  dayIndex: number;
+  exerciseIndex: number;
+  name: string;
+  label: string;
+  focus: string;
+  equipment: string;
+}
 
+interface TutorialResponse {
+  tutorials: Array<{
+    dayIndex: number;
+    exerciseIndex: number;
+    tutorial: {
+      howTo: string;
+      cues: string[];
+      commonMistakes: string[];
+    };
+  }>;
+}
+
+/**
+ * Generate the plan skeleton (structure, exercises, macros) without detailed tutorials
+ */
+async function generatePlanSkeleton(assessment: Assessment): Promise<SkeletonProgram> {
+  const prompt = buildSkeletonPrompt(assessment);
+  
   let attempts = 0;
   const maxAttempts = 3;
 
   while (attempts < maxAttempts) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
+        signal: controller.signal,
         body: JSON.stringify({
           model: 'gpt-4o-mini',
           messages: [
             {
               role: 'system',
-              content: `You are an expert strength & conditioning coach and sports nutritionist.
+              content: buildSkeletonSystemPrompt(),
+            },
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+          temperature: 0.7,
+          response_format: { type: 'json_object' },
+          max_tokens: 1800,
+        }),
+      });
+
+      if (!response.ok) {
+        clearTimeout(timeoutId);
+        const error = await response.text();
+        throw new Error(`OpenAI API error: ${response.status} ${error}`);
+      }
+
+      const data = await response.json();
+      clearTimeout(timeoutId);
+      
+      const content = data.choices[0]?.message?.content;
+
+      if (!content) {
+        throw new Error('No content in OpenAI response');
+      }
+
+      const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const parsed = JSON.parse(jsonContent);
+
+      const normalized = normalizeOpenAIResponse(parsed);
+      const validated = ProgramResponseSchema.parse(normalized);
+      return validated;
+    } catch (error) {
+      if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('aborted'))) {
+        throw new Error('OpenAI API request timed out.');
+      }
+      
+      attempts++;
+      if (attempts >= maxAttempts) {
+        if (error instanceof z.ZodError) {
+          console.error('Validation error:', error.errors);
+          throw new Error(`Invalid program structure from AI: ${JSON.stringify(error.errors)}`);
+        }
+        throw error;
+      }
+      if (error instanceof z.ZodError) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  throw new Error('Failed to generate valid plan skeleton after retries');
+}
+
+/**
+ * Enrich the skeleton plan with detailed tutorials
+ */
+async function enrichPlanWithTutorials(
+  assessment: Assessment,
+  skeleton: SkeletonProgram
+): Promise<GeneratedProgram> {
+  // Extract all exercises with references
+  const exercises: ExerciseRef[] = [];
+  for (const day of skeleton.training) {
+    if (day.isWorkoutDay && day.workout?.exercises) {
+      for (let i = 0; i < day.workout.exercises.length; i++) {
+        const exercise = day.workout.exercises[i];
+        exercises.push({
+          dayIndex: day.dayIndex,
+          exerciseIndex: i,
+          name: exercise.name,
+          label: day.label,
+          focus: day.focus,
+          equipment: exercise.equipment || 'Bodyweight',
+        });
+      }
+    }
+  }
+
+  if (exercises.length === 0) {
+    // No exercises to enrich, return skeleton with empty tutorials
+    return skeleton as GeneratedProgram;
+  }
+
+  // Chunk exercises if needed (40 per call)
+  const chunkSize = 40;
+  const chunks: ExerciseRef[][] = [];
+  for (let i = 0; i < exercises.length; i += chunkSize) {
+    chunks.push(exercises.slice(i, i + chunkSize));
+  }
+
+  const allTutorials: TutorialResponse['tutorials'] = [];
+
+  // Process each chunk
+  for (const chunk of chunks) {
+    const tutorialPrompt = buildTutorialPrompt(assessment, chunk);
+    
+    let attempts = 0;
+    const maxAttempts = 2;
+
+    while (attempts < maxAttempts) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+          },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [
+              {
+                role: 'system',
+                content: buildTutorialSystemPrompt(),
+              },
+              {
+                role: 'user',
+                content: tutorialPrompt,
+              },
+            ],
+            temperature: 0.7,
+            response_format: { type: 'json_object' },
+            max_tokens: 2000,
+          }),
+        });
+
+        if (!response.ok) {
+          clearTimeout(timeoutId);
+          const error = await response.text();
+          throw new Error(`OpenAI API error: ${response.status} ${error}`);
+        }
+
+        const data = await response.json();
+        clearTimeout(timeoutId);
+        
+        const content = data.choices[0]?.message?.content;
+
+        if (!content) {
+          throw new Error('No content in OpenAI response');
+        }
+
+        const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        const parsed = JSON.parse(jsonContent) as TutorialResponse;
+
+        if (parsed.tutorials && Array.isArray(parsed.tutorials)) {
+          allTutorials.push(...parsed.tutorials);
+        }
+        break; // Success, exit retry loop
+      } catch (error) {
+        if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('aborted'))) {
+          throw new Error('OpenAI API request timed out.');
+        }
+        
+        attempts++;
+        if (attempts >= maxAttempts) {
+          throw error;
+        }
+        // Retry
+        continue;
+      }
+    }
+  }
+
+  // Merge tutorials back into skeleton
+  const enriched = JSON.parse(JSON.stringify(skeleton)) as GeneratedProgram;
+  
+  for (const tutorial of allTutorials) {
+    const day = enriched.training.find(d => d.dayIndex === tutorial.dayIndex);
+    if (day?.workout?.exercises[tutorial.exerciseIndex]) {
+      day.workout.exercises[tutorial.exerciseIndex].tutorial = tutorial.tutorial;
+    }
+  }
+
+  // Ensure all exercises have tutorials (fallback for any missing)
+  for (const day of enriched.training) {
+    if (day.workout?.exercises) {
+      for (const exercise of day.workout.exercises) {
+        if (!exercise.tutorial) {
+          exercise.tutorial = {
+            howTo: `Perform ${exercise.name} with proper form. Focus on controlled movement and full range of motion.`,
+            cues: ['Maintain proper form throughout', 'Control the movement', 'Breathe steadily'],
+            commonMistakes: ['Using momentum instead of muscle control', 'Incomplete range of motion'],
+          };
+        }
+      }
+    }
+  }
+
+  // Validate final structure
+  return FinalProgramResponseSchema.parse(enriched);
+}
+
+/**
+ * Main function - generates full plan with tutorials
+ */
+export async function generate90DayPlan(request: Generate90DayPlanRequest): Promise<GeneratedProgram> {
+  const { assessment } = request;
+  
+  console.log('Step 1: Generating plan skeleton...');
+  const skeleton = await generatePlanSkeleton(assessment);
+  
+  console.log('Step 2: Enriching with tutorials...');
+  const fullPlan = await enrichPlanWithTutorials(assessment, skeleton);
+  
+  return fullPlan;
+}
+
+function buildSkeletonSystemPrompt(): string {
+  return `You are an expert strength & conditioning coach and sports nutritionist.
 
 Your job:
 Design a realistic, highly personalized 14-day (2-week) training and nutrition template
-that will be repeated over ~90 days. Return it in a strict JSON format the app can render.
+that will be repeated over ~90 days. Return it in a strict JSON format.
 
-The user will see this as a program written just for them. Be detailed and specific,
-not generic.
+CRITICAL: This is PHASE 1 - structure only. Do NOT include detailed tutorials yet.
 
 GENERAL JSON RULES
 - Respond with JSON ONLY, no extra text, no backticks.
@@ -175,12 +429,12 @@ GENERAL JSON RULES
   - IF isWorkoutDay:
       workout: {
         estimatedDurationMinutes: number
-        notes: string
+        notes: string (2-3 sentences max)
         exercises: Exercise[]
       }
   - IF NOT isWorkoutDay:
       recovery: {
-        suggestions: string[]
+        suggestions: string[] (3-5 items, each 1-2 sentences describing a recovery block)
       }
 - Each Exercise must include:
   {
@@ -189,14 +443,10 @@ GENERAL JSON RULES
     reps: string
     restSeconds: number
     equipment: string
-    tutorial: {
-      howTo: string
-      cues: string[]
-      commonMistakes: string[]
-    }
+    tutorial: undefined (DO NOT include tutorial fields in this phase)
   }
 - nutrition.dailyMacroTargets must include:
-  calories, proteinGrams, carbsGrams, fatsGrams, notes.
+  calories, proteinGrams, carbsGrams, fatsGrams, notes (brief explanation).
 
 WORKOUT VOLUME & STRUCTURE
 - Use the user's goal, daysPerWeek, minutesPerWorkout, trainingExperience, equipment,
@@ -224,23 +474,6 @@ CARDIO / CONDITIONING FOR LEAN GOALS
     - Make other days primarily cardio/conditioning, especially if daysPerWeek is high.
   - Clarify in workout.notes how the cardio/conditioning helps fat loss or leanness.
 
-IN-DEPTH TUTORIALS & COACH TIPS
-- Tutorials must be VERY detailed and practical, not vague.
-- For tutorial.howTo:
-  - Write a multi-step, in-depth explanation (3–6 clear steps) on how to perform the exercise.
-  - Mention important details like joint angles, torso position, breathing, range of motion,
-    and how to adjust for the user's experience or injuries if relevant.
-- For tutorial.cues:
-  - Avoid shallow cues like "engage core" or "squeeze shoulders" as the only advice.
-  - Provide 3–6 specific cues that paint a clear picture, e.g.:
-    - "Imagine you are bending the bar to engage your lats",
-    - "Keep your ribs stacked over your pelvis to avoid hyperextending your lower back".
-- For tutorial.commonMistakes:
-  - List 3–5 detailed mistakes and why they are bad.
-  - Where useful, mention what the user should do instead.
-- Use the user's injuriesOrPain and priorityAreas to adjust tutorials:
-  - For example, if they have knee pain, explain how to tweak squats to reduce stress on the knees.
-
 PERSONALIZATION RULES
 - Personalize the plan based on:
   - Goal (fat loss, muscle gain, recomposition, flexibility, performance, etc.)
@@ -255,7 +488,7 @@ PERSONALIZATION RULES
   - day labels:
     - Use descriptive labels like "Glute-Biased Lower", "Posture & Upper Back", "Cardio + Core".
   - workout.notes:
-    - 2–4 sentences explaining why today's session looks this way for THIS user:
+    - 2–3 sentences explaining why today's session looks this way for THIS user:
       - How it supports their goal.
       - How it considers their injuries or weak points.
       - How it fits into the broader 90-day arc.
@@ -264,7 +497,7 @@ GOAL-SPECIFIC LOGIC
 - If the goal mentions flexibility or mobility:
   - Every workout day must include at least 1 dedicated mobility or stretching block as an exercise entry.
   - Favor long-range-of-motion exercises: deep goblet squats, Romanian deadlifts, Cossack squats, etc.
-  - Recovery days should prescribe specific mobility flows (e.g. "10-min hip flexor + hamstring flow with 3 detailed positions").
+  - Recovery days should prescribe specific mobility flows (e.g. "Block 1 – 10-min hip flexor + hamstring flow: 2 rounds of 30s couch stretch per side, 30s 90/90 hip switches, 30s deep squat hold").
   - Explain in workout.notes how today's work helps them move better and feel less stiff.
 - If the goal is hypertrophy / muscle gain:
   - Focus on 6–12 rep ranges with enough weekly sets per muscle group.
@@ -308,61 +541,69 @@ NUTRITION LOGIC
   - Explain clearly WHY these numbers were chosen for this user:
     - Reference height, weight, goal, training frequency, and activityLevel.
     - Mention if this is a deficit, surplus, or maintenance.
-    - Mention what they should focus on (e.g., "prioritize hitting protein and staying within ~100 kcal of this target").`,
-            },
-            {
-              role: 'user',
-              content: prompt,
-            },
-          ],
-          temperature: 0.7,
-          response_format: { type: 'json_object' },
-        }),
-      });
+    - Mention what they should focus on (e.g., "prioritize hitting protein and staying within ~100 kcal of this target").
 
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(`OpenAI API error: ${response.status} ${error}`);
-      }
+LENGTH LIMITS
+- Keep workout.notes to 2-3 sentences.
+- Keep each recovery.suggestions item to 1-2 sentences.
+- Keep nutrition.dailyMacroTargets.notes to 2-3 sentences.
+- Do NOT include tutorial fields (howTo, cues, commonMistakes) in exercises.`;
+}
 
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content;
+function buildTutorialSystemPrompt(): string {
+  return `You are an expert strength & conditioning coach.
 
-      if (!content) {
-        throw new Error('No content in OpenAI response');
-      }
+Your job:
+Generate detailed, personalized exercise tutorials for a specific user.
 
-      // Parse JSON (remove markdown code blocks if present)
-      const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const parsed = JSON.parse(jsonContent);
+This is PHASE 2 - tutorials only. You will receive a list of exercises and user profile.
+Return JSON with tutorials for each exercise.
 
-      // Normalize the response to handle OpenAI's inconsistent formatting
-      const normalized = normalizeOpenAIResponse(parsed);
-
-      // Validate with Zod
-      const validated = ProgramResponseSchema.parse(normalized);
-      return validated;
-    } catch (error) {
-      attempts++;
-      if (attempts >= maxAttempts) {
-        if (error instanceof z.ZodError) {
-          console.error('Validation error:', error.errors);
-          throw new Error(`Invalid program structure from AI: ${JSON.stringify(error.errors)}`);
-        }
-        throw error;
-      }
-      // Retry on validation error
-      if (error instanceof z.ZodError) {
-        continue;
-      }
-      throw error;
+GENERAL JSON RULES
+- Respond with JSON ONLY, no extra text, no backticks.
+- Root object: { "tutorials": EnrichedTutorial[] }
+- Each EnrichedTutorial:
+  {
+    "dayIndex": number,
+    "exerciseIndex": number,
+    "tutorial": {
+      "howTo": string,
+      "cues": string[],
+      "commonMistakes": string[]
     }
   }
 
-  throw new Error('Failed to generate valid plan after retries');
+TUTORIAL QUALITY REQUIREMENTS
+- Tutorials must be VERY detailed and practical, not vague.
+- For howTo:
+  - Write 2-4 dense sentences covering: setup, position, movement path, breathing, safety.
+  - Mention important details like joint angles, torso position, breathing, range of motion.
+  - Adjust for the user's experience level and injuries if relevant.
+- For cues:
+  - Provide 3-4 vivid, specific cues that paint a clear picture.
+  - Avoid shallow cues like "engage core" or "squeeze shoulders" as the only advice.
+  - Examples: "Imagine you are bending the bar to engage your lats", "Keep your ribs stacked over your pelvis to avoid hyperextending your lower back".
+- For commonMistakes:
+  - List 3 short sentences (mistake + what to do instead).
+  - Explain why each mistake is bad and what the user should do instead.
+
+PERSONALIZATION
+- Use the user's profile to tailor tutorials:
+  - trainingExperience: Adjust complexity and detail level.
+  - injuriesOrPain: Provide modifications and safer alternatives.
+  - priorityAreas: Emphasize form cues relevant to those areas.
+  - equipment: Reference the specific equipment they have.
+- Make the language feel like a coach talking to this specific user.
+- For example, if they have knee pain, explain how to tweak squats to reduce stress on the knees.
+
+LENGTH LIMITS
+- Keep total response under ~2,000 words.
+- Each howTo: 2-4 dense sentences.
+- Each cues array: 3-4 items.
+- Each commonMistakes array: 3 items.`;
 }
 
-function buildPrompt(assessment: Assessment): string {
+function buildSkeletonPrompt(assessment: Assessment): string {
   const age = assessment.age || 30;
   const weight_kg = assessment.weight_kg || 70;
   const height_cm = assessment.height_cm || 170;
@@ -374,7 +615,6 @@ function buildPrompt(assessment: Assessment): string {
   const priority_areas = assessment.priority_areas || 'none';
   const activity_level = assessment.activity_level || 'moderately_active';
   
-  // Determine equipment description
   let equipmentDescription = 'No equipment (bodyweight only)';
   if (assessment.has_equipment) {
     equipmentDescription = 'Full gym access (barbells, dumbbells, machines, cables, etc.)';
@@ -412,9 +652,45 @@ function buildPrompt(assessment: Assessment): string {
 
   lines.push(
     '',
-    `Use this information and the system instructions to return the JSON object.`,
+    `Generate the 14-day plan structure. Do NOT include tutorial fields in exercises.`,
   );
 
   return lines.join('\n');
 }
 
+function buildTutorialPrompt(assessment: Assessment, exercises: ExerciseRef[]): string {
+  const age = assessment.age || 30;
+  const weight_kg = assessment.weight_kg || 70;
+  const height_cm = assessment.height_cm || 170;
+  const gender = assessment.gender || 'male';
+  const training_experience = assessment.training_experience || 'intermediate';
+  const injuries_or_pain = assessment.injuries_or_pain || 'none';
+  const priority_areas = assessment.priority_areas || 'none';
+  
+  let equipmentDescription = 'No equipment (bodyweight only)';
+  if (assessment.has_equipment) {
+    equipmentDescription = 'Full gym access (barbells, dumbbells, machines, cables, etc.)';
+  } else if (assessment.equipment) {
+    const equipmentList = Array.isArray(assessment.equipment) 
+      ? assessment.equipment.join(', ')
+      : assessment.equipment;
+    equipmentDescription = `Limited equipment: ${equipmentList}`;
+  }
+
+  const exerciseList = exercises.map((ex, idx) => 
+    `${idx + 1}. Day ${ex.dayIndex} (${ex.label} - ${ex.focus}): ${ex.name} (Equipment: ${ex.equipment})`
+  ).join('\n');
+
+  return `User profile:
+- Age: ${age}, Sex: ${gender}, Height: ${height_cm}cm, Weight: ${weight_kg}kg
+- Goal: ${assessment.goals?.join(', ') || 'General fitness'}
+- Training experience: ${training_experience}
+- Injuries or pain: ${injuries_or_pain}
+- Priority areas: ${priority_areas}
+- Available equipment: ${equipmentDescription}
+
+Exercises to create tutorials for:
+${exerciseList}
+
+For each exercise, provide detailed tutorials that are personalized to this user's profile, experience level, and any injuries or limitations.`;
+}
