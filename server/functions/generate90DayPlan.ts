@@ -200,7 +200,7 @@ async function generatePlanSkeleton(assessment: Assessment): Promise<SkeletonPro
           ],
           temperature: 0.7,
           response_format: { type: 'json_object' },
-          max_tokens: 1800,
+          max_tokens: 4000,
         }),
       });
 
@@ -218,7 +218,21 @@ async function generatePlanSkeleton(assessment: Assessment): Promise<SkeletonPro
       }
 
       const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const parsed = JSON.parse(jsonContent);
+      
+      // Check if response was truncated (common sign: ends with incomplete JSON)
+      if (jsonContent.endsWith('...') || !jsonContent.endsWith('}')) {
+        console.warn('Response may be truncated, attempting to parse anyway');
+      }
+      
+      let parsed;
+      try {
+        parsed = JSON.parse(jsonContent);
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+        console.error('Content length:', jsonContent.length);
+        console.error('Content preview (last 500 chars):', jsonContent.slice(-500));
+        throw new Error(`Invalid JSON from OpenAI: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}. Response may be truncated.`);
+      }
 
       const normalized = normalizeOpenAIResponse(parsed);
       const validated = ProgramResponseSchema.parse(normalized);
@@ -310,7 +324,7 @@ async function enrichPlanWithTutorials(
             ],
             temperature: 0.7,
             response_format: { type: 'json_object' },
-            max_tokens: 2000,
+            max_tokens: 4000,
           }),
         });
 
@@ -328,7 +342,21 @@ async function enrichPlanWithTutorials(
         }
 
         const jsonContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-        const parsed = JSON.parse(jsonContent) as TutorialResponse;
+        
+        // Check if response was truncated
+        if (jsonContent.endsWith('...') || !jsonContent.endsWith('}')) {
+          console.warn('Tutorial response may be truncated, attempting to parse anyway');
+        }
+        
+        let parsed: TutorialResponse;
+        try {
+          parsed = JSON.parse(jsonContent) as TutorialResponse;
+        } catch (parseError) {
+          console.error('Tutorial JSON parse error:', parseError);
+          console.error('Content length:', jsonContent.length);
+          console.error('Content preview (last 500 chars):', jsonContent.slice(-500));
+          throw new Error(`Invalid JSON from OpenAI for tutorials: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}. Response may be truncated.`);
+        }
 
         if (parsed.tutorials && Array.isArray(parsed.tutorials)) {
           allTutorials.push(...parsed.tutorials);
