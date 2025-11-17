@@ -180,16 +180,12 @@ async function generatePlanSkeleton(assessment: Assessment): Promise<SkeletonPro
 
   while (attempts < maxAttempts) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-      
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${OPENAI_API_KEY}`,
         },
-        signal: controller.signal,
         body: JSON.stringify({
           model: 'gpt-4o-mini',
           messages: [
@@ -209,13 +205,11 @@ async function generatePlanSkeleton(assessment: Assessment): Promise<SkeletonPro
       });
 
       if (!response.ok) {
-        clearTimeout(timeoutId);
         const error = await response.text();
         throw new Error(`OpenAI API error: ${response.status} ${error}`);
       }
 
       const data = await response.json();
-      clearTimeout(timeoutId);
       
       const content = data.choices[0]?.message?.content;
 
@@ -230,10 +224,6 @@ async function generatePlanSkeleton(assessment: Assessment): Promise<SkeletonPro
       const validated = ProgramResponseSchema.parse(normalized);
       return validated;
     } catch (error) {
-      if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('aborted'))) {
-        throw new Error('OpenAI API request timed out.');
-      }
-      
       attempts++;
       if (attempts >= maxAttempts) {
         if (error instanceof z.ZodError) {
@@ -300,16 +290,12 @@ async function enrichPlanWithTutorials(
 
     while (attempts < maxAttempts) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
-        
         const response = await fetch('https://api.openai.com/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${OPENAI_API_KEY}`,
           },
-          signal: controller.signal,
           body: JSON.stringify({
             model: 'gpt-4o-mini',
             messages: [
@@ -329,13 +315,11 @@ async function enrichPlanWithTutorials(
         });
 
         if (!response.ok) {
-          clearTimeout(timeoutId);
           const error = await response.text();
           throw new Error(`OpenAI API error: ${response.status} ${error}`);
         }
 
         const data = await response.json();
-        clearTimeout(timeoutId);
         
         const content = data.choices[0]?.message?.content;
 
@@ -351,10 +335,6 @@ async function enrichPlanWithTutorials(
         }
         break; // Success, exit retry loop
       } catch (error) {
-        if (error instanceof Error && (error.name === 'AbortError' || error.message.includes('aborted'))) {
-          throw new Error('OpenAI API request timed out.');
-        }
-        
         attempts++;
         if (attempts >= maxAttempts) {
           throw error;
