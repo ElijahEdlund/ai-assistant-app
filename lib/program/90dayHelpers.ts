@@ -89,6 +89,9 @@ export function isDateInProgram(plan: WorkoutPlan | null, date: string): boolean
   if (!range) return false;
   
   const targetDate = dayjs(date);
-  return targetDate.isSameOrAfter(range.start, 'day') && targetDate.isSameOrBefore(range.end, 'day');
+  const startDate = dayjs(range.start);
+  const endDate = dayjs(range.end);
+  return (targetDate.isAfter(startDate, 'day') || targetDate.isSame(startDate, 'day')) && 
+         (targetDate.isBefore(endDate, 'day') || targetDate.isSame(endDate, 'day'));
 }
 

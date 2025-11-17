@@ -37,6 +37,11 @@ export interface Assessment {
   has_equipment?: boolean;
   daily_minutes?: number;
   goal_description?: string;
+  training_experience?: 'beginner' | 'intermediate' | 'advanced';
+  injuries_or_pain?: string;
+  priority_areas?: string;
+  activity_level?: 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active';
+  equipment?: string[] | string;
   created_at?: string;
 }
 

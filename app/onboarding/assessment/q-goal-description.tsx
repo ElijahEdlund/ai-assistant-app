@@ -49,13 +49,13 @@ export default function GoalDescriptionQuestion() {
   const handleNext = async () => {
     if (!isValid) return;
     await update({ goal_description: trimmed });
-    router.push('/onboarding/assessment/q-equipment');
+    router.push('/onboarding/assessment/q-experience');
   };
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View flex={1} backgroundColor="$background">
-        <Stepper current={6} total={9} />
+        <Stepper current={6} total={13} />
         <YStack flex={1} padding="$4" gap="$4" justifyContent="center">
           <Text fontSize="$8" fontWeight="bold" textAlign="center" marginBottom="$4">
             Give a brief description of your training goals.

@@ -1,4 +1,5 @@
-import { View, YStack, Text, XStack, Card, ScrollView, Button, TouchableOpacity } from 'tamagui';
+import { View, YStack, Text, XStack, Card, ScrollView, Button } from 'tamagui';
+import { TouchableOpacity } from 'react-native';
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { Drawer } from '../../components/Drawer';
@@ -10,8 +11,9 @@ import dayjs from 'dayjs';
 import { useDisableSwipeBack } from '../../lib/gestures/swipeBack';
 import { WeekStrip } from '../../components/schedule/WeekStrip';
 import { buildWeekDays, getWorkoutForDate } from '../../lib/program/selectors';
-import { getDayNumber, getTrainingForDay } from '../../lib/program/90dayHelpers';
+import { getDayNumber, getTrainingForDay, getNutritionForDay } from '../../lib/program/90dayHelpers';
 import { WorkoutCard } from '../../components/workout/WorkoutCard';
+import { MacroPieChart } from '../../components/nutrition/MacroPieChart';
 
 export default function ProgramOverview() {
   const router = useRouter();
@@ -95,6 +97,21 @@ export default function ProgramOverview() {
     if (!selectedDayData || !selectedDayData.isWorkoutDay) return null;
     return getWorkoutForDate(plan, selectedDate);
   }, [plan, selectedDate, selectedDayData]);
+
+  const macroTargets = useMemo(() => {
+    if (!plan) return null;
+    const dayNumber = getDayNumber(plan, selectedDate) || 1;
+    const nutrition = getNutritionForDay(plan, dayNumber);
+    if (!nutrition) return null;
+    
+    return {
+      calories: nutrition.calories,
+      proteinGrams: nutrition.proteinG,
+      carbsGrams: nutrition.carbsG,
+      fatsGrams: nutrition.fatsG,
+      notes: nutrition.notes,
+    };
+  }, [plan, selectedDate]);
 
   const handleRetakeAssessment = () => {
     Alert.alert(
@@ -180,14 +197,12 @@ export default function ProgramOverview() {
             </YStack>
           )}
 
+          {/* Macro Targets Pie Chart */}
+          {macroTargets && (
+            <MacroPieChart targets={macroTargets} />
+          )}
+
           <YStack gap="$3" marginTop="$4">
-            <Button
-              size="$4"
-              theme="alt1"
-              onPress={() => router.push('/calendar')}
-            >
-              <Text color="$color" fontSize="$4">View full calendar</Text>
-            </Button>
             <Button
               size="$4"
               variant="outlined"

@@ -7,7 +7,13 @@ interface StepperProps {
 
 export function Stepper({ current, total }: StepperProps) {
   return (
-    <XStack justifyContent="space-between" alignItems="center" paddingHorizontal="$4" paddingVertical="$3">
+    <XStack 
+      justifyContent="space-between" 
+      alignItems="center" 
+      paddingHorizontal="$4" 
+      paddingVertical="$3"
+      marginTop="$6"
+    >
       <Text fontSize="$3" color="$placeholderColor">
         Step {current} of {total}
       </Text>

@@ -8,6 +8,7 @@ import { useAuth } from '../../lib/hooks/useAuth';
 import { Animated, Easing } from 'react-native';
 import { useDisableSwipeBack } from '../../lib/gestures/swipeBack';
 import { generate90DayPlan } from '../../lib/ai';
+import { AthletIQLogo } from '../../components/AthletIQLogo';
 
 const loadingMessages = [
   'Analyzing your goals...',
@@ -150,6 +151,7 @@ export default function LoadingScreen() {
   return (
     <View flex={1} backgroundColor="$background">
       <YStack flex={1} justifyContent="center" alignItems="center" gap="$4">
+        <AthletIQLogo size={140} />
         <View
           style={{
             width: 260,

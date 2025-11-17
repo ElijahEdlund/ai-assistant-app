@@ -155,19 +155,160 @@ export async function generate90DayPlan(request: Generate90DayPlanRequest): Prom
           messages: [
             {
               role: 'system',
-              content: `You are an expert strength coach and nutritionist. Your task is to create a comprehensive 2-week (14-day) training template that will be repeated to fill a 90-day program.
+              content: `You are an expert strength & conditioning coach and sports nutritionist.
 
-CRITICAL REQUIREMENTS:
-1. Generate exactly 14 days of training (dayIndex 1-14)
-2. Each workout day MUST include:
-   - Full exercise details with name, sets, reps, restSeconds, equipment
-   - Complete tutorial for EACH exercise with:
-     * howTo: Step-by-step instructions (2-4 sentences)
-     * cues: Array of 3-5 short coaching cues (e.g., ["Keep core tight", "Drive through heels"])
-     * commonMistakes: Array of 2-4 common mistakes to avoid
-3. Rest days MUST include recovery suggestions (array of 3-5 tips)
-4. Provide ONE set of daily macro targets tailored to the user's profile
-5. Return ONLY valid JSON matching the exact schema - no markdown, no explanations, no code blocks`,
+Your job:
+Design a realistic, highly personalized 14-day (2-week) training and nutrition template
+that will be repeated over ~90 days. Return it in a strict JSON format the app can render.
+
+The user will see this as a program written just for them. Be detailed and specific,
+not generic.
+
+GENERAL JSON RULES
+- Respond with JSON ONLY, no extra text, no backticks.
+- The root object must have: meta, training (14 days), nutrition.
+- training must be an array of exactly 14 DayPlan objects:
+  - dayIndex: 1–14
+  - isWorkoutDay: boolean
+  - label: string
+  - focus: string
+  - IF isWorkoutDay:
+      workout: {
+        estimatedDurationMinutes: number
+        notes: string
+        exercises: Exercise[]
+      }
+  - IF NOT isWorkoutDay:
+      recovery: {
+        suggestions: string[]
+      }
+- Each Exercise must include:
+  {
+    name: string
+    sets: number
+    reps: string
+    restSeconds: number
+    equipment: string
+    tutorial: {
+      howTo: string
+      cues: string[]
+      commonMistakes: string[]
+    }
+  }
+- nutrition.dailyMacroTargets must include:
+  calories, proteinGrams, carbsGrams, fatsGrams, notes.
+
+WORKOUT VOLUME & STRUCTURE
+- Use the user's goal, daysPerWeek, minutesPerWorkout, trainingExperience, equipment,
+  injuriesOrPain, priorityAreas, and activityLevel to design the plan.
+- For each workout day:
+  - If minutesPerWorkout >= 60 → 5–7 exercises.
+  - If 45 <= minutesPerWorkout < 60 → 4–6 exercises.
+  - If 30 <= minutesPerWorkout < 45 → 3–5 exercises.
+- Never return fewer than 4 exercises per workout if minutesPerWorkout >= 45.
+- Each workout day should include:
+  - 1 main compound or primary movement (if equipment allows),
+  - 2–4 accessory or secondary movements,
+  - 1 block that is either:
+    - mobility/stretching, or
+    - conditioning/cardio (intervals, circuits, steady-state), depending on the goal.
+
+CARDIO / CONDITIONING FOR LEAN GOALS
+- If the goal includes getting lean, fat loss, or body recomposition:
+  - Do NOT make the whole plan purely weightlifting.
+  - Mix in cardio/conditioning in a structured way:
+    - At least 1–3 dedicated cardio/conditioning sessions or blocks per week.
+    - Examples: interval runs, incline treadmill, cycling intervals, sled pushes, conditioning circuits.
+  - You can:
+    - Make some days primarily lifting with a conditioning finisher, and
+    - Make other days primarily cardio/conditioning, especially if daysPerWeek is high.
+  - Clarify in workout.notes how the cardio/conditioning helps fat loss or leanness.
+
+IN-DEPTH TUTORIALS & COACH TIPS
+- Tutorials must be VERY detailed and practical, not vague.
+- For tutorial.howTo:
+  - Write a multi-step, in-depth explanation (3–6 clear steps) on how to perform the exercise.
+  - Mention important details like joint angles, torso position, breathing, range of motion,
+    and how to adjust for the user's experience or injuries if relevant.
+- For tutorial.cues:
+  - Avoid shallow cues like "engage core" or "squeeze shoulders" as the only advice.
+  - Provide 3–6 specific cues that paint a clear picture, e.g.:
+    - "Imagine you are bending the bar to engage your lats",
+    - "Keep your ribs stacked over your pelvis to avoid hyperextending your lower back".
+- For tutorial.commonMistakes:
+  - List 3–5 detailed mistakes and why they are bad.
+  - Where useful, mention what the user should do instead.
+- Use the user's injuriesOrPain and priorityAreas to adjust tutorials:
+  - For example, if they have knee pain, explain how to tweak squats to reduce stress on the knees.
+
+PERSONALIZATION RULES
+- Personalize the plan based on:
+  - Goal (fat loss, muscle gain, recomposition, flexibility, performance, etc.)
+  - trainingExperience (beginner / intermediate / advanced)
+  - injuriesOrPain (avoid or modify risky movements and note safer options)
+  - equipment (only use equipment they actually have)
+  - priorityAreas (e.g. glutes, posture, arms, hamstrings; bias volume and attention towards these)
+  - activityLevel (impacts calorie estimate and recovery emphasis).
+- Reflect personalization in:
+  - meta.summary and meta.description:
+    - Mention age, goal, experience, equipment context, and key priorities in natural language.
+  - day labels:
+    - Use descriptive labels like "Glute-Biased Lower", "Posture & Upper Back", "Cardio + Core".
+  - workout.notes:
+    - 2–4 sentences explaining why today's session looks this way for THIS user:
+      - How it supports their goal.
+      - How it considers their injuries or weak points.
+      - How it fits into the broader 90-day arc.
+
+GOAL-SPECIFIC LOGIC
+- If the goal mentions flexibility or mobility:
+  - Every workout day must include at least 1 dedicated mobility or stretching block as an exercise entry.
+  - Favor long-range-of-motion exercises: deep goblet squats, Romanian deadlifts, Cossack squats, etc.
+  - Recovery days should prescribe specific mobility flows (e.g. "10-min hip flexor + hamstring flow with 3 detailed positions").
+  - Explain in workout.notes how today's work helps them move better and feel less stiff.
+- If the goal is hypertrophy / muscle gain:
+  - Focus on 6–12 rep ranges with enough weekly sets per muscle group.
+  - Ensure at least 2 exposures per week for priority muscles.
+- If the goal is fat loss or "getting lean":
+  - Include both resistance training and cardio/conditioning in a structured way.
+  - Emphasize energy expenditure, NEAT, and maintaining muscle tissue.
+  - Mention step targets, brisk walking, or similar in recovery days and notes.
+
+RECOVERY DAYS AS REAL ROUTINES
+- Recovery days should feel like actionable routines, not vague advice.
+- In recovery.suggestions, each string should describe a specific "block" of a recovery routine, for example:
+  - "Block 1 – 10-min hip mobility: 2 rounds of 30s couch stretch per side, 30s 90/90 hip switches, 30s deep squat hold."
+  - "Block 2 – Breathing reset: 5 minutes of 4-6 breathing lying on your back with feet on a bench."
+- Provide 3–5 such blocks per recovery day, so that if the user taps a recovery day,
+  they can follow a concrete sequence.
+- Tailor recovery suggestions to:
+  - injuriesOrPain,
+  - priorityAreas,
+  - and activityLevel (more active users may need more mobility, less neural fatigue).
+
+PROGRESSION LOGIC
+- Assume the user repeats this 14-day template for about 90 days.
+- In each workout.notes, give specific progression guidance, such as:
+  - How to add load, reps, or sets over successive cycles.
+  - When to back off or deload.
+- Provide at least one concrete performance benchmark somewhere in the plan, such as:
+  - "Aim to build up to holding these side planks for 45–60 seconds per side with perfect form."
+  - "By the end of 8 weeks, many people can add 10–20 kg to their deadlift if they follow this structure."
+
+NUTRITION LOGIC
+- Use the user's age, sex, height, weight, activityLevel, and goal to estimate maintenance calories.
+- Then set daily calories:
+  - Muscle gain: ~5–15% above estimated maintenance.
+  - Fat loss / getting lean: ~15–25% below estimated maintenance.
+  - Primarily flexibility/mobility with no strong body-composition goal: near maintenance.
+- Set proteinGrams to roughly 0.8–1.0 g per pound of bodyweight (less aggressive if user is obese).
+- Ensure fatsGrams are at least ~0.3 g per pound of bodyweight.
+- carbsGrams can fill the remaining calories.
+- In dailyMacroTargets.notes:
+  - Explain clearly WHY these numbers were chosen for this user:
+    - Reference height, weight, goal, training frequency, and activityLevel.
+    - Mention if this is a deficit, surplus, or maintenance.
+    - Mention what they should focus on (e.g., "prioritize hitting protein and staying within ~100 kcal of this target").`,
             },
             {
               role: 'user',
@@ -222,34 +363,43 @@ CRITICAL REQUIREMENTS:
 }
 
 function buildPrompt(assessment: Assessment): string {
-  // Calculate BMR and activity level for nutrition
   const age = assessment.age || 30;
   const weight_kg = assessment.weight_kg || 70;
   const height_cm = assessment.height_cm || 170;
   const gender = assessment.gender || 'male';
   const weekly_days = assessment.weekly_days || 3;
   const daily_minutes = assessment.daily_minutes || 45;
+  const training_experience = assessment.training_experience || 'intermediate';
+  const injuries_or_pain = assessment.injuries_or_pain || 'none';
+  const priority_areas = assessment.priority_areas || 'none';
+  const activity_level = assessment.activity_level || 'moderately_active';
   
-  // Estimate activity level
-  const weeklyMinutes = weekly_days * daily_minutes;
-  let activityLevel = 'sedentary';
-  if (weeklyMinutes >= 300) activityLevel = 'very_active';
-  else if (weeklyMinutes >= 150) activityLevel = 'active';
-  else if (weeklyMinutes >= 75) activityLevel = 'moderately_active';
-  else activityLevel = 'lightly_active';
+  // Determine equipment description
+  let equipmentDescription = 'No equipment (bodyweight only)';
+  if (assessment.has_equipment) {
+    equipmentDescription = 'Full gym access (barbells, dumbbells, machines, cables, etc.)';
+  } else if (assessment.equipment) {
+    const equipmentList = Array.isArray(assessment.equipment) 
+      ? assessment.equipment.join(', ')
+      : assessment.equipment;
+    equipmentDescription = `Limited equipment: ${equipmentList}`;
+  }
 
   const lines: string[] = [
-    `Create a comprehensive 2-week (14-day) training template for this client. This template will be repeated to create a 90-day program.`,
+    `User profile for training and nutrition:`,
     '',
-    `**Client Profile:**`,
     `- Age: ${age}`,
-    `- Gender: ${gender}`,
+    `- Sex: ${gender}`,
     `- Height: ${height_cm} cm`,
     `- Weight: ${weight_kg} kg`,
-    `- Training days per week: ${weekly_days}`,
-    `- Daily training time: ${daily_minutes} minutes`,
-    `- Equipment access: ${assessment.has_equipment ? 'Yes (full gym with weights, machines, etc.)' : 'No (bodyweight and minimal equipment only)'}`,
-    `- Primary goals: ${assessment.goals?.join(', ') || 'General fitness'}`,
+    `- Goal: ${assessment.goals?.join(', ') || 'General fitness'}`,
+    `- Training experience: ${training_experience}`,
+    `- Days per week available to train: ${weekly_days}`,
+    `- Minutes available per workout: ${daily_minutes}`,
+    `- Daily activity level: ${activity_level}`,
+    `- Available equipment: ${equipmentDescription}`,
+    `- Injuries or pain: ${injuries_or_pain}`,
+    `- Priority areas: ${priority_areas}`,
   ];
 
   if (assessment.goal_description) {
@@ -262,114 +412,7 @@ function buildPrompt(assessment: Assessment): string {
 
   lines.push(
     '',
-    `**CRITICAL REQUIREMENTS:**`,
-    '',
-    `1. TRAINING TEMPLATE (14 days):`,
-    `   - Create exactly 14 days (dayIndex 1-14)`,
-    `   - Distribute ${weekly_days} workout days across the 14-day period`,
-    `   - Each workout day MUST include:`,
-    `     * dayIndex (1-14)`,
-    `     * isWorkoutDay: true`,
-    `     * label: Descriptive name (e.g., "Push Day", "Legs & Glutes", "Upper Body Strength")`,
-    `     * focus: Primary muscle groups or training focus`,
-    `     * workout object with:`,
-    `       - estimatedDurationMinutes: ${daily_minutes}`,
-    `       - notes: Brief workout notes (optional)`,
-    `       - exercises: Array of exercises, each with:`,
-    `         * name: Exercise name`,
-    `         * sets: Number of sets (typically 3-5)`,
-    `         * reps: Number or range (e.g., 8, "8-10", "12-15")`,
-    `         * restSeconds: Rest time between sets (typically 60-180)`,
-    `         * equipment: Required equipment`,
-    `         * tutorial: {`,
-    `           - howTo: Step-by-step instructions (2-4 sentences explaining proper form)`,
-    `           - cues: Array of 3-5 short coaching cues (e.g., ["Keep core engaged", "Drive through heels", "Control the eccentric"])`,
-    `           - commonMistakes: Array of 2-4 common mistakes (e.g., ["Rounding the back", "Using momentum", "Not going full range of motion"])`,
-    `         }`,
-    `   - Each rest day MUST include:`,
-    `     * dayIndex (1-14)`,
-    `     * isWorkoutDay: false`,
-    `     * label: "Rest Day" or "Recovery Day"`,
-    `     * focus: "Recovery"`,
-    `     * recovery object with:`,
-    `       - suggestions: Array of 3-5 recovery tips (e.g., ["Light stretching", "Foam rolling", "Stay hydrated", "Quality sleep"])`,
-    '',
-    `2. NUTRITION:`,
-    `   - Provide ONE set of daily macro targets (same for all days):`,
-    `     * calories: Based on ${gender}, age ${age}, weight ${weight_kg}kg, height ${height_cm}cm, activity level: ${activityLevel}`,
-    `     * proteinGrams: Typically 1.6-2.2g per kg body weight for muscle building`,
-    `     * carbsGrams: Based on goals and activity`,
-    `     * fatsGrams: Typically 0.8-1.2g per kg body weight`,
-    `     * notes: Brief explanation of the macro strategy`,
-    '',
-    `3. META INFORMATION:`,
-    `   - goal: Primary fitness goal`,
-    `   - daysPerWeek: ${weekly_days}`,
-    `   - minutesPerWorkout: ${daily_minutes}`,
-    `   - summary: High-level program summary (optional)`,
-    `   - description: Program description (optional)`,
-    '',
-    `**Equipment Constraints:**`,
-    `${assessment.has_equipment ? 'Use full gym equipment: barbells, dumbbells, machines, cables, etc.' : 'ONLY use bodyweight exercises and minimal equipment (resistance bands, pull-up bar if available). NO weights, machines, or gym equipment.'}`,
-    '',
-    `**Goal Alignment:**`,
-    `Tailor exercises and intensity to: ${assessment.goals?.join(', ') || 'general fitness'}`,
-    '',
-    `Respond with ONLY valid JSON matching this structure (no markdown, no code blocks):`,
-    `{`,
-    `  "meta": {`,
-    `    "goal": "...",`,
-    `    "daysPerWeek": ${weekly_days},`,
-    `    "minutesPerWorkout": ${daily_minutes},`,
-    `    "summary": "...",`,
-    `    "description": "..."`,
-    `  },`,
-    `  "training": [`,
-    `    {`,
-    `      "dayIndex": 1,`,
-    `      "isWorkoutDay": true,`,
-    `      "label": "Push Day",`,
-    `      "focus": "Chest, Shoulders, Triceps",`,
-    `      "workout": {`,
-    `        "estimatedDurationMinutes": ${daily_minutes},`,
-    `        "notes": "...",`,
-    `        "exercises": [`,
-    `          {`,
-    `            "name": "Bench Press",`,
-    `            "sets": 4,`,
-    `            "reps": "8-10",`,
-    `            "restSeconds": 120,`,
-    `            "equipment": "Barbell, Bench",`,
-    `            "tutorial": {`,
-    `              "howTo": "Lie on bench with feet flat. Grip bar slightly wider than shoulders. Lower to chest with control, pause, then press up explosively.",`,
-    `              "cues": ["Keep shoulder blades retracted", "Drive through feet", "Control the descent"],`,
-    `              "commonMistakes": ["Bouncing bar off chest", "Arching back excessively", "Flaring elbows too wide"]`,
-    `            }`,
-    `          }`,
-    `        ]`,
-    `      }`,
-    `    },`,
-    `    {`,
-    `      "dayIndex": 2,`,
-    `      "isWorkoutDay": false,`,
-    `      "label": "Rest Day",`,
-    `      "focus": "Recovery",`,
-    `      "recovery": {`,
-    `        "suggestions": ["Light stretching", "Foam rolling", "Stay hydrated", "Quality sleep"]`,
-    `      }`,
-    `    }`,
-    `    // ... continue for all 14 days`,
-    `  ],`,
-    `  "nutrition": {`,
-    `    "dailyMacroTargets": {`,
-    `      "calories": 2500,`,
-    `      "proteinGrams": 140,`,
-    `      "carbsGrams": 300,`,
-    `      "fatsGrams": 70,`,
-    `      "notes": "Calorie target supports muscle building with adequate protein for recovery."`,
-    `    }`,
-    `  }`,
-    `}`,
+    `Use this information and the system instructions to return the JSON object.`,
   );
 
   return lines.join('\n');

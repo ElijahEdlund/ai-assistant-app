@@ -1,5 +1,5 @@
 import { View, YStack, Text, XStack, Button } from 'tamagui';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'expo-router';
 import { ArrowLeft } from '@tamagui/lucide-icons';
 import { Stepper } from '../../../components/ui/Stepper';
@@ -9,76 +9,46 @@ import { useAssessmentStore } from '../../../lib/state/assessment';
 import { useDisableSwipeBack } from '../../../lib/gestures/swipeBack';
 import { Keyboard, TouchableWithoutFeedback } from 'react-native';
 
-const DAY_OPTIONS = [
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-  'Sunday',
+const experienceOptions = [
+  { value: 'beginner', label: 'Beginner', description: 'New to structured training' },
+  { value: 'intermediate', label: 'Intermediate', description: '1-3 years of consistent training' },
+  { value: 'advanced', label: 'Advanced', description: '3+ years of structured training' },
 ];
 
-export default function TimeQuestion() {
-  const [selectedDays, setSelectedDays] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
+export default function ExperienceQuestion() {
+  const [selectedExperience, setSelectedExperience] = useState<string | null>(null);
   const router = useRouter();
-  const { update } = useAssessmentStore();
+  const { assessment, update } = useAssessmentStore();
 
   useDisableSwipeBack();
 
-  const toggleDay = (day: string) => {
-    setSelectedDays((prev) => {
-      if (prev.includes(day)) {
-        setError(null);
-        return prev.filter((d) => d !== day);
-      }
-      setError(null);
-      return [...prev, day];
-    });
-  };
-
-  const weeklyDays = useMemo(() => selectedDays.length, [selectedDays]);
-  const isValid = weeklyDays >= 2 && weeklyDays <= 6;
-
   const handleNext = async () => {
-    if (!isValid) {
-      setError('Please select between 2 and 6 training days to match your plan.');
-      return;
-    }
-    await update({
-      weekly_days: weeklyDays,
-      available_days: selectedDays,
-    });
-    router.push('/onboarding/assessment/q-hours');
+    if (!selectedExperience) return;
+    await update({ training_experience: selectedExperience as 'beginner' | 'intermediate' | 'advanced' });
+    router.push('/onboarding/assessment/q-injuries');
   };
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View flex={1} backgroundColor="$background">
-        <Stepper current={12} total={13} />
+        <Stepper current={6} total={13} />
         <YStack flex={1} padding="$4" gap="$4" justifyContent="center">
           <Text fontSize="$8" fontWeight="bold" textAlign="center" marginBottom="$4">
-            Which days can you train?
+            What's your training experience?
           </Text>
-          <Text fontSize="$4" color="$placeholderColor" textAlign="center">
-            Select between two and six days you’re typically available.
+          <Text fontSize="$4" color="$placeholderColor" textAlign="center" marginBottom="$4">
+            This helps us tailor the program to your level
           </Text>
           <YStack gap="$3" alignItems="center" marginTop="$4">
-            {DAY_OPTIONS.map((day) => (
+            {experienceOptions.map((option) => (
               <Chip
-                key={day}
-                label={day}
-                selected={selectedDays.includes(day)}
-                onPress={() => toggleDay(day)}
+                key={option.value}
+                label={option.label}
+                selected={selectedExperience === option.value}
+                onPress={() => setSelectedExperience(option.value)}
               />
             ))}
           </YStack>
-          {error && (
-            <Text fontSize="$3" color="tomato" textAlign="center">
-              {error}
-            </Text>
-          )}
           <XStack gap="$3" marginTop="$4" alignItems="center">
             <Button
               size="$3"
@@ -93,7 +63,7 @@ export default function TimeQuestion() {
               label="Continue"
               size="$4"
               onPress={handleNext}
-              disabled={!isValid}
+              disabled={!selectedExperience}
               flex={1}
               fullWidth={false}
             />

@@ -4,7 +4,7 @@ import { ReactNode } from 'react';
 interface WorkoutCardProps {
   title: string;
   tag?: string;
-  exercises: Array<{ name: string; sets?: number; reps?: number; rest?: string }>;
+  exercises: Array<{ name: string; sets?: number; reps?: number | string; rest?: string }>;
   onPress?: () => void;
   footer?: ReactNode;
   CTA?: {

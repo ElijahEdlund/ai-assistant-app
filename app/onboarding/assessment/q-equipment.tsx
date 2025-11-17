@@ -30,7 +30,7 @@ export default function EquipmentQuestion() {
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View flex={1} backgroundColor="$background">
-        <Stepper current={7} total={9} />
+        <Stepper current={11} total={13} />
         <YStack flex={1} padding="$4" gap="$4" justifyContent="center">
           <Text fontSize="$8" fontWeight="bold" textAlign="center" marginBottom="$4">
             Do you have access to gym equipment?

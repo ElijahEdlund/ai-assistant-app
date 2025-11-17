@@ -20,6 +20,14 @@ export default function AssessmentIndex() {
       router.replace('/onboarding/assessment/q-goals');
     } else if (!assessment?.goal_description || assessment.goal_description.trim().length === 0) {
       router.replace('/onboarding/assessment/q-goal-description');
+    } else if (!assessment?.training_experience) {
+      router.replace('/onboarding/assessment/q-experience');
+    } else if (assessment.injuries_or_pain === undefined) {
+      router.replace('/onboarding/assessment/q-injuries');
+    } else if (assessment.priority_areas === undefined) {
+      router.replace('/onboarding/assessment/q-priority-areas');
+    } else if (!assessment?.activity_level) {
+      router.replace('/onboarding/assessment/q-activity-level');
     } else if (assessment.has_equipment === undefined || assessment.has_equipment === null) {
       router.replace('/onboarding/assessment/q-equipment');
     } else if (!assessment?.weekly_days) {

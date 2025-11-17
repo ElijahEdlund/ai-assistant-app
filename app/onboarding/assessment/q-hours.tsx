@@ -56,7 +56,7 @@ export default function HoursQuestion() {
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <View flex={1} backgroundColor="$background">
-        <Stepper current={9} total={9} />
+        <Stepper current={13} total={13} />
         <YStack flex={1} padding="$4" gap="$4" justifyContent="center">
           <Text fontSize="$8" fontWeight="bold" textAlign="center" marginBottom="$4">
             How many hours per day can you work out?
