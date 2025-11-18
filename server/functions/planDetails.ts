@@ -82,6 +82,7 @@ export async function generatePlanDetails(request: PlanDetailsRequest): Promise<
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
+          max_tokens: 12000, // Allow enough tokens for detailed content
           messages: [
             {
               role: 'system',
@@ -315,11 +316,33 @@ function buildDetailsPrompt(assessment: Assessment, blueprint: PlanBlueprint): s
     lines.push(`- Goal description: ${assessment.goal_description}`);
   }
 
+  // Include only essential blueprint structure to reduce prompt size
+  const essentialBlueprint = {
+    splitDesign: {
+      dayTypes: blueprint.splitDesign.dayTypes.map((dt: any) => ({
+        id: dt.id,
+        label: dt.label,
+        category: dt.category,
+        isRecoveryDay: dt.isRecoveryDay,
+        includesCardio: dt.includesCardio,
+      })),
+      microcycleTemplate: blueprint.splitDesign.microcycleTemplate,
+    },
+    userProfile: {
+      goal: blueprint.userProfile.goal,
+      trainingDaysPerWeek: blueprint.userProfile.trainingDaysPerWeek,
+      sessionLengthMinutes: blueprint.userProfile.sessionLengthMinutes,
+      equipmentAccess: blueprint.userProfile.equipmentAccess,
+      injuries: blueprint.userProfile.injuries,
+      experienceLevel: blueprint.userProfile.experienceLevel,
+    },
+  };
+
   lines.push(
     '',
     `PROGRAM BLUEPRINT (YOU MUST FOLLOW THIS STRUCTURE):`,
     '',
-    JSON.stringify(blueprint, null, 2),
+    JSON.stringify(essentialBlueprint, null, 2),
     '',
     `Generate detailed workout content, exercise tutorials, recovery routines, and coach notes based on this blueprint.`,
     `Ensure all dayTypeDetails keys match the dayType IDs from the blueprint.`,
