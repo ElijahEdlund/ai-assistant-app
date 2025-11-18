@@ -154,44 +154,126 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
       workoutBatches.push(workoutDayTypes.slice(i, i + batchSize));
     }
 
-    // Generate workout details in batches, then combine
+    // Helper function to fetch with timeout and retry
+    const fetchWithTimeoutAndRetry = async (
+      url: string,
+      options: RequestInit,
+      timeoutMs: number = 50000, // 50 seconds default
+      maxRetries: number = 2
+    ): Promise<Response> => {
+      let lastError: Error | null = null;
+      
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+          
+          const response = await fetch(url, {
+            ...options,
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            return response;
+          }
+          
+          // If it's a timeout or 504 error, retry
+          if (response.status === 504 || response.status === 408) {
+            if (attempt < maxRetries) {
+              const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000);
+              console.log(`Request failed with ${response.status}, retrying in ${backoffMs}ms... (attempt ${attempt + 1}/${maxRetries})`);
+              await new Promise(resolve => setTimeout(resolve, backoffMs));
+              continue;
+            }
+          }
+          
+          // For other errors, throw immediately
+          const errorText = await response.text();
+          throw new Error(`Request failed: ${response.status} ${errorText.substring(0, 200)}`);
+        } catch (error: any) {
+          lastError = error;
+          
+          // Check if it's a timeout/abort error
+          if (error.name === 'AbortError' || error.message?.includes('timeout') || error.message?.includes('504')) {
+            if (attempt < maxRetries) {
+              const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000);
+              console.log(`Request timed out, retrying in ${backoffMs}ms... (attempt ${attempt + 1}/${maxRetries})`);
+              await new Promise(resolve => setTimeout(resolve, backoffMs));
+              continue;
+            }
+          }
+          
+          // For other errors on last attempt, throw
+          if (attempt === maxRetries) {
+            throw error;
+          }
+        }
+      }
+      
+      throw lastError || new Error('Request failed after retries');
+    };
+
+    // Generate workout details in batches with timeout and retry
     console.log(`Generating workout details in ${workoutBatches.length} batch(es)...`);
-    const workoutDetailsPromises = workoutBatches.map((batch, index) => {
-      console.log(`Batch ${index + 1}/${workoutBatches.length}: ${batch.join(', ')}`);
-      return fetch(`${API_URL}/api/plan-details-workouts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          assessment, 
-          blueprint, 
-          dayTypeIds: batch 
-        }),
-      });
-    });
+    
+    // Process workout batches sequentially to avoid overwhelming the serverless function
+    // This is especially important when injuries are present (more complex prompts)
+    const workoutResponses: Response[] = [];
+    for (let i = 0; i < workoutBatches.length; i++) {
+      const batch = workoutBatches[i];
+      console.log(`Batch ${i + 1}/${workoutBatches.length}: ${batch.join(', ')}`);
+      
+      try {
+        const response = await fetchWithTimeoutAndRetry(
+          `${API_URL}/api/plan-details-workouts`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              assessment, 
+              blueprint, 
+              dayTypeIds: batch 
+            }),
+          },
+          50000, // 50 second timeout per batch
+          2 // 2 retries
+        );
+        workoutResponses.push(response);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        throw new Error(`Workout details batch ${i + 1} failed after retries: ${errorMessage}`);
+      }
+    }
 
-    // Call all endpoints in parallel (workout batches + recovery + coach notes)
-    const allResponses = await Promise.all([
-      ...workoutDetailsPromises,
-      recoveryDayTypes.length > 0 ? fetch(`${API_URL}/api/plan-details-recovery`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          assessment, 
-          blueprint, 
-          dayTypeIds: recoveryDayTypes 
-        }),
-      }) : Promise.resolve({ ok: true, json: async () => ({}) }),
-      fetch(`${API_URL}/api/plan-details-coach-notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assessment, blueprint }),
-      }),
+    // Process recovery and coach notes in parallel (they're usually faster)
+    const [recoveryResponse, coachNotesResponse] = await Promise.all([
+      recoveryDayTypes.length > 0 ? fetchWithTimeoutAndRetry(
+        `${API_URL}/api/plan-details-recovery`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            assessment, 
+            blueprint, 
+            dayTypeIds: recoveryDayTypes 
+          }),
+        },
+        40000, // 40 second timeout
+        2
+      ) : Promise.resolve({ ok: true, json: async () => ({}) } as Response),
+      fetchWithTimeoutAndRetry(
+        `${API_URL}/api/plan-details-coach-notes`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assessment, blueprint }),
+        },
+        40000, // 40 second timeout
+        2
+      ),
     ]);
-
-    // Separate responses
-    const workoutResponses = allResponses.slice(0, workoutBatches.length);
-    const recoveryResponse = allResponses[workoutBatches.length];
-    const coachNotesResponse = allResponses[workoutBatches.length + 1];
 
     // Check workout batch responses
     for (let i = 0; i < workoutResponses.length; i++) {

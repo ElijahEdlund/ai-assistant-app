@@ -54,6 +54,12 @@ export async function generatePlanDetailsWorkouts(
   const { assessment, blueprint, dayTypeIds } = request;
   const prompt = buildWorkoutsPrompt(assessment, blueprint, dayTypeIds);
 
+  // Reduce max_tokens when injuries are present to speed up generation
+  const hasInjuries = assessment.injuries_or_pain && 
+    assessment.injuries_or_pain !== 'none' && 
+    assessment.injuries_or_pain.trim().length > 0;
+  const maxTokens = hasInjuries ? 2500 : 3000; // Slightly lower for injury cases to reduce processing time
+
   let attempts = 0;
   const maxAttempts = 3;
 
@@ -67,7 +73,7 @@ export async function generatePlanDetailsWorkouts(
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          max_tokens: 3000, // Single day type - smaller token limit for speed
+          max_tokens: maxTokens,
           messages: [
             {
               role: 'system',
@@ -123,6 +129,11 @@ WORKOUT STRUCTURE:
 - Create blocks: Main Lifts, Accessories, Finisher (optional)
 - Exercise count: 3-5 exercises total (match sessionLengthMinutes)
 - Warmup: 3-4 steps (not 6)
+
+INJURY CONSIDERATIONS:
+- If injuries are present, focus on safe alternatives and modifications
+- Keep injury-specific notes concise but actionable
+- Prioritize exercise safety over excessive detail
 
 IMPORTANT: Be detailed but concise. Focus on quality over quantity. Return JSON ONLY, no markdown, no backticks.`,
             },
@@ -211,11 +222,18 @@ function buildWorkoutsPrompt(
     sessionLengthMinutes: blueprint.userProfile.sessionLengthMinutes,
   };
 
+  // Make injury description more concise to reduce prompt size
+  const injuriesDescription = injuries_or_pain && injuries_or_pain !== 'none' 
+    ? injuries_or_pain.length > 100 
+      ? `${injuries_or_pain.substring(0, 100)}...` 
+      : injuries_or_pain
+    : 'none';
+
   return `User profile:
 - Training experience: ${training_experience}
 - Minutes per workout: ${daily_minutes}
 - Equipment: ${equipmentDescription}
-- Injuries: ${injuries_or_pain}
+- Injuries: ${injuriesDescription}
 - Priority areas: ${priority_areas}
 
 PROGRAM BLUEPRINT (generate details ONLY for these day types):
