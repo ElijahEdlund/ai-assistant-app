@@ -189,12 +189,18 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
 
     // Parse all responses
     const workoutsDetails = await workoutsResponse.json();
-    const recoveryDetails = recoveryDayTypes.length > 0 ? await recoveryResponse.json() : {};
+    const recoveryDetailsRaw = recoveryDayTypes.length > 0 ? await recoveryResponse.json() : {};
     const coachNotes = await coachNotesResponse.json();
     
     console.log('All details generated successfully');
 
+    // Transform recovery details to match expected structure
+    // Recovery endpoint returns { dayTypeId: { name, recoveryRoutine } }
+    // We need { dayTypeId: { name, recoveryRoutine } } - it's already correct!
+    const recoveryDetails = recoveryDetailsRaw;
+    
     // Combine into the expected details structure
+    // Note: workoutsDetails and recoveryDetails are already keyed by dayTypeId
     const details = {
       dayTypeDetails: {
         ...workoutsDetails,
