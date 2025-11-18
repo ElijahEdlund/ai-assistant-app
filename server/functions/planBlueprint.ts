@@ -208,7 +208,7 @@ RULES:
 
       // Validate with Zod
       const validated = PlanBlueprintSchema.parse(parsed);
-      return validated;
+      return validated as PlanBlueprint;
     } catch (error) {
       attempts++;
       if (attempts >= maxAttempts) {
