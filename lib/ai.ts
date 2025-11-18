@@ -199,21 +199,6 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
         throw new Error(`Workout details batch ${i + 1} failed: ${workoutResponses[i].status} ${errorText.substring(0, 200)}`);
       }
     }
-      recoveryDayTypes.length > 0 ? fetch(`${API_URL}/api/plan-details-recovery`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          assessment, 
-          blueprint, 
-          dayTypeIds: recoveryDayTypes 
-        }),
-      }) : Promise.resolve({ ok: true, json: async () => ({}) }),
-      fetch(`${API_URL}/api/plan-details-coach-notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assessment, blueprint }),
-      }),
-    ]);
 
     // Check recovery and coach notes responses
     if (recoveryDayTypes.length > 0 && !recoveryResponse.ok) {
