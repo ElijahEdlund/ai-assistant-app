@@ -4,10 +4,19 @@
       "maxDuration": 60
     },
     "api/plan-blueprint.ts": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "api/plan-details.ts": {
       "maxDuration": 60
+    },
+    "api/plan-details-workouts.ts": {
+      "maxDuration": 50
+    },
+    "api/plan-details-recovery.ts": {
+      "maxDuration": 30
+    },
+    "api/plan-details-coach-notes.ts": {
+      "maxDuration": 40
     }
   }
 }

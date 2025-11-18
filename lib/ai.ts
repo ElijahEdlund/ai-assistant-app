@@ -135,23 +135,73 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
     const blueprint = await blueprintResponse.json();
     console.log('Blueprint generated successfully');
 
-    // Step 2: Generate details
-    console.log('Step 2: Generating plan details...');
-    const detailsUrl = `${API_URL}/api/plan-details`;
-    const detailsResponse = await fetch(detailsUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assessment, blueprint }),
-    });
+    // Step 2: Generate details in parallel (split into smaller, faster calls)
+    console.log('Step 2: Generating plan details (workouts, recovery, coach notes)...');
+    
+    // Separate day types into workout days and recovery days
+    const workoutDayTypes = blueprint.splitDesign.dayTypes
+      .filter((dt: any) => !dt.isRecoveryDay)
+      .map((dt: any) => dt.id);
+    const recoveryDayTypes = blueprint.splitDesign.dayTypes
+      .filter((dt: any) => dt.isRecoveryDay)
+      .map((dt: any) => dt.id);
 
-    if (!detailsResponse.ok) {
-      const errorText = await detailsResponse.text();
-      console.error('Details API error response:', errorText.substring(0, 500));
-      throw new Error(`Plan details generation failed: ${detailsResponse.status} ${errorText.substring(0, 200)}`);
+    // Call all three endpoints in parallel for maximum speed
+    const [workoutsResponse, recoveryResponse, coachNotesResponse] = await Promise.all([
+      fetch(`${API_URL}/api/plan-details-workouts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          assessment, 
+          blueprint, 
+          dayTypeIds: workoutDayTypes 
+        }),
+      }),
+      recoveryDayTypes.length > 0 ? fetch(`${API_URL}/api/plan-details-recovery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          assessment, 
+          blueprint, 
+          dayTypeIds: recoveryDayTypes 
+        }),
+      }) : Promise.resolve({ ok: true, json: async () => ({}) }),
+      fetch(`${API_URL}/api/plan-details-coach-notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assessment, blueprint }),
+      }),
+    ]);
+
+    // Check all responses
+    if (!workoutsResponse.ok) {
+      const errorText = await workoutsResponse.text();
+      throw new Error(`Workout details generation failed: ${workoutsResponse.status} ${errorText.substring(0, 200)}`);
+    }
+    if (recoveryDayTypes.length > 0 && !recoveryResponse.ok) {
+      const errorText = await recoveryResponse.text();
+      throw new Error(`Recovery details generation failed: ${recoveryResponse.status} ${errorText.substring(0, 200)}`);
+    }
+    if (!coachNotesResponse.ok) {
+      const errorText = await coachNotesResponse.text();
+      throw new Error(`Coach notes generation failed: ${coachNotesResponse.status} ${errorText.substring(0, 200)}`);
     }
 
-    const details = await detailsResponse.json();
-    console.log('Details generated successfully');
+    // Parse all responses
+    const workoutsDetails = await workoutsResponse.json();
+    const recoveryDetails = recoveryDayTypes.length > 0 ? await recoveryResponse.json() : {};
+    const coachNotes = await coachNotesResponse.json();
+    
+    console.log('All details generated successfully');
+
+    // Combine into the expected details structure
+    const details = {
+      dayTypeDetails: {
+        ...workoutsDetails,
+        ...recoveryDetails,
+      },
+      globalCoachNotes: coachNotes,
+    };
 
     // Step 3: Transform blueprint + details into the expected plan structure
     const transformedPlan = transformBlueprintAndDetailsToPlan(blueprint, details, assessment);

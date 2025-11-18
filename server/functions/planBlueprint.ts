@@ -84,6 +84,7 @@ export async function generatePlanBlueprint(request: PlanBlueprintRequest): Prom
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
+          max_tokens: 4000, // Limit response size for faster generation
           messages: [
             {
               role: 'system',
