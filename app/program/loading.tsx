@@ -12,17 +12,17 @@ import { AthletIQLogo } from '../../components/AthletIQLogo';
 
 const loadingMessages = [
   'Analyzing your goals...',
-  'Designing your 90-day program...',
-  'Setting macro targets...',
-  'Creating personalized workouts...',
-  'Building nutrition plan...',
+  'Designing your training structure...',
+  'Writing detailed workouts...',
+  'Creating exercise tutorials...',
+  'Building recovery routines...',
   'Finalizing your plan...',
 ];
 
 const statusMessages = [
-  'Generating 90-day plan • 25%',
-  'Creating training phases • 50%',
-  'Calculating nutrition • 75%',
+  'Designing program structure • 25%',
+  'Writing detailed workouts • 50%',
+  'Adding coaching notes • 75%',
   'Finalizing program • 95%',
 ];
 

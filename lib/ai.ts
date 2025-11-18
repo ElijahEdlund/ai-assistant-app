@@ -117,93 +117,226 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
   }
 
   try {
-    const url = `${API_URL}/api/generate-90day-plan`;
-    console.log('Calling API endpoint:', url);
-    
-    const response = await fetch(url, {
+    // Step 1: Generate blueprint
+    console.log('Step 1: Generating plan blueprint...');
+    const blueprintUrl = `${API_URL}/api/plan-blueprint`;
+    const blueprintResponse = await fetch(blueprintUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ assessment }),
     });
 
-    console.log('API response status:', response.status, response.statusText);
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API error response:', errorText.substring(0, 500));
-      throw new Error(`90-day plan generation failed: ${response.status} ${errorText.substring(0, 200)}`);
+    if (!blueprintResponse.ok) {
+      const errorText = await blueprintResponse.text();
+      console.error('Blueprint API error response:', errorText.substring(0, 500));
+      throw new Error(`Plan blueprint generation failed: ${blueprintResponse.status} ${errorText.substring(0, 200)}`);
     }
 
-    const generatedProgram = await response.json();
-    
-    // Calculate start date (tomorrow)
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() + 1);
-    const programStartDate = startDate.toISOString().split('T')[0];
+    const blueprint = await blueprintResponse.json();
+    console.log('Blueprint generated successfully');
 
-    // Transform the 2-week template into a 90-day program
-    // The template has 14 days, we'll map days 1-90 to template days 1-14 using modulo
-    const templateDays = generatedProgram.training || [];
-    
-    // Build workouts for all 90 days
-    const workouts: any[] = [];
-    
-    for (let dayNumber = 1; dayNumber <= 90; dayNumber++) {
-      const templateDayIndex = getTemplateDayIndex(dayNumber);
-      const templateDay = templateDays.find((d: any) => d.dayIndex === templateDayIndex) || templateDays[templateDayIndex - 1];
-      
-      if (templateDay && templateDay.isWorkoutDay && templateDay.workout?.exercises) {
-        // Calculate date for this day
-        const workoutDate = new Date(startDate);
-        workoutDate.setDate(workoutDate.getDate() + (dayNumber - 1));
-        
-        workouts.push({
-          id: `day-${dayNumber}`,
-          day: dayNumber,
-          name: templateDay.label,
-          focus: templateDay.focus,
-          scheduledDate: workoutDate.toISOString().split('T')[0],
-          exercises: templateDay.workout.exercises.map((ex: any) => ({
-            name: ex.name,
-            sets: ex.sets,
-            reps: ex.reps,
-            rest: ex.restSeconds ? `${ex.restSeconds}s` : '60s',
-            equipment: ex.equipment,
-            tutorial: ex.tutorial || {
-              howTo: ex.notes || 'Follow proper form and technique.',
-              cues: [],
-              commonMistakes: [],
-            },
-          })),
-        });
-      }
+    // Step 2: Generate details
+    console.log('Step 2: Generating plan details...');
+    const detailsUrl = `${API_URL}/api/plan-details`;
+    const detailsResponse = await fetch(detailsUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assessment, blueprint }),
+    });
+
+    if (!detailsResponse.ok) {
+      const errorText = await detailsResponse.text();
+      console.error('Details API error response:', errorText.substring(0, 500));
+      throw new Error(`Plan details generation failed: ${detailsResponse.status} ${errorText.substring(0, 200)}`);
     }
 
-    // Create the plan structure with the 2-week template
-    const plan: WorkoutPlan = {
-      user_id: assessment.user_id,
-      program_start_date: programStartDate,
-      plan: {
-        programLengthDays: 90,
-        startDate: programStartDate,
-        // Store the 2-week template
-        template: {
-          meta: generatedProgram.meta,
-          training: templateDays,
-          nutrition: generatedProgram.nutrition,
-        },
-        // Store workouts mapped to dates for easy lookup
-        workouts,
-        goals: assessment.goals,
-        weeklyDays: assessment.weekly_days,
-      },
-    };
+    const details = await detailsResponse.json();
+    console.log('Details generated successfully');
 
-    return plan;
+    // Step 3: Transform blueprint + details into the expected plan structure
+    const transformedPlan = transformBlueprintAndDetailsToPlan(blueprint, details, assessment);
+    
+    return transformedPlan;
   } catch (error) {
     console.error('Error generating 90-day plan:', error);
     throw error;
   }
+}
+
+/**
+ * Transforms blueprint + details into the WorkoutPlan structure expected by the app
+ */
+function transformBlueprintAndDetailsToPlan(
+  blueprint: any,
+  details: any,
+  assessment: Assessment
+): WorkoutPlan {
+  // Calculate start date (tomorrow)
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() + 1);
+  const programStartDate = startDate.toISOString().split('T')[0];
+
+  // Build the 14-day template by combining blueprint structure with details
+  const templateDays: any[] = [];
+  const microcycleTemplate = blueprint.splitDesign.microcycleTemplate;
+  const dayTypes = blueprint.splitDesign.dayTypes;
+
+  for (const templateDay of microcycleTemplate) {
+    const dayType = dayTypes.find((dt: any) => dt.id === templateDay.dayTypeId);
+    if (!dayType) continue;
+
+    const dayDetails = details.dayTypeDetails[templateDay.dayTypeId];
+    if (!dayDetails) continue;
+
+    const isRecoveryDay = dayType.isRecoveryDay;
+    
+    // Collect all exercises from blocks
+    const allExercises: any[] = [];
+    if (dayDetails.blocks) {
+      for (const block of dayDetails.blocks) {
+        if (block.exercises) {
+          for (const exercise of block.exercises) {
+            allExercises.push({
+              name: exercise.name,
+              sets: exercise.sets,
+              reps: exercise.reps,
+              restSeconds: exercise.restSeconds,
+              equipment: exercise.equipment,
+              tutorial: {
+                howTo: exercise.howTo || exercise.cues?.join(' ') || 'Follow proper form and technique.',
+                cues: exercise.cues || [],
+                commonMistakes: exercise.commonMistakes || [],
+                progressionTips: exercise.progressionTips || [],
+              },
+            });
+          }
+        }
+      }
+    }
+
+    // Build the template day
+    const templateDayObj: any = {
+      dayIndex: templateDay.dayIndex,
+      isWorkoutDay: !isRecoveryDay,
+      label: dayType.label,
+      focus: dayType.focusDescription,
+    };
+
+    if (isRecoveryDay) {
+      // Recovery day
+      templateDayObj.recovery = {
+        suggestions: dayDetails.recoveryRoutine?.steps || [],
+      };
+    } else {
+      // Workout day
+      // Estimate duration based on exercise count (rough estimate: 5 min per exercise + warmup)
+      const estimatedDuration = Math.max(30, allExercises.length * 5 + 10);
+      
+      // Build workout notes with warmup, focus, and cardio
+      let workoutNotes = dayDetails.trainingFocus || '';
+      
+      // Add warmup information
+      if (dayDetails.warmup?.description) {
+        workoutNotes = `Warmup: ${dayDetails.warmup.description}\n\n${workoutNotes}`;
+      }
+      
+      // Add cardio protocol if included
+      if (dayDetails.cardioProtocol?.isIncluded) {
+        workoutNotes += `\n\nCardio: ${dayDetails.cardioProtocol.description}`;
+      }
+      
+      templateDayObj.workout = {
+        estimatedDurationMinutes: estimatedDuration,
+        notes: workoutNotes,
+        exercises: allExercises,
+        warmup: dayDetails.warmup ? {
+          description: dayDetails.warmup.description,
+          steps: dayDetails.warmup.steps,
+        } : undefined,
+      };
+    }
+
+    templateDays.push(templateDayObj);
+  }
+
+  // Build workouts for all 90 days
+  const workouts: any[] = [];
+  
+  for (let dayNumber = 1; dayNumber <= 90; dayNumber++) {
+    const templateDayIndex = getTemplateDayIndex(dayNumber);
+    const templateDay = templateDays.find((d: any) => d.dayIndex === templateDayIndex) || templateDays[templateDayIndex - 1];
+    
+    if (templateDay && templateDay.isWorkoutDay && templateDay.workout?.exercises) {
+      // Calculate date for this day
+      const workoutDate = new Date(startDate);
+      workoutDate.setDate(workoutDate.getDate() + (dayNumber - 1));
+      
+      workouts.push({
+        id: `day-${dayNumber}`,
+        day: dayNumber,
+        name: templateDay.label,
+        focus: templateDay.focus,
+        scheduledDate: workoutDate.toISOString().split('T')[0],
+        exercises: templateDay.workout.exercises.map((ex: any) => ({
+          name: ex.name,
+          sets: ex.sets,
+          reps: ex.reps,
+          rest: ex.restSeconds ? `${ex.restSeconds}s` : '60s',
+          equipment: ex.equipment,
+          tutorial: ex.tutorial || {
+            howTo: ex.notes || 'Follow proper form and technique.',
+            cues: [],
+            commonMistakes: [],
+          },
+        })),
+      });
+    }
+  }
+
+  // Build meta from blueprint
+  const meta = {
+    goal: blueprint.programOverview.primaryGoal,
+    daysPerWeek: blueprint.userProfile.trainingDaysPerWeek,
+    minutesPerWorkout: blueprint.userProfile.sessionLengthMinutes,
+    summary: blueprint.programOverview.summary,
+    description: blueprint.programOverview.title,
+  };
+
+  // Build nutrition from blueprint
+  const nutrition = {
+    dailyMacroTargets: {
+      calories: blueprint.nutritionOverview.dailyMacros.calories,
+      proteinGrams: blueprint.nutritionOverview.dailyMacros.proteinGrams,
+      carbsGrams: blueprint.nutritionOverview.dailyMacros.carbsGrams,
+      fatsGrams: blueprint.nutritionOverview.dailyMacros.fatsGrams,
+      notes: details.globalCoachNotes.nutritionStrategy || blueprint.nutritionOverview.guidelines.join('\n'),
+    },
+  };
+
+  // Create the plan structure
+  const plan: WorkoutPlan = {
+    user_id: assessment.user_id,
+    program_start_date: programStartDate,
+    plan: {
+      programLengthDays: 90,
+      startDate: programStartDate,
+      // Store the 2-week template
+      template: {
+        meta,
+        training: templateDays,
+        nutrition,
+        // Store additional coach notes
+        coachNotes: details.globalCoachNotes,
+        blueprint: blueprint, // Store blueprint for reference
+      },
+      // Store workouts mapped to dates for easy lookup
+      workouts,
+      goals: assessment.goals,
+      weeklyDays: assessment.weekly_days,
+    },
+  };
+
+  return plan;
 }
 
 export async function generateCheckInResponse(

@@ -2,6 +2,12 @@
   "functions": {
     "api/generate-90day-plan.ts": {
       "maxDuration": 60
+    },
+    "api/plan-blueprint.ts": {
+      "maxDuration": 30
+    },
+    "api/plan-details.ts": {
+      "maxDuration": 40
     }
   }
 }
