@@ -146,8 +146,8 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
       .filter((dt: any) => dt.isRecoveryDay)
       .map((dt: any) => dt.id);
 
-    // Split workout days into batches of 2-3 to prevent timeouts
-    const batchSize = 3;
+    // Split workout days into batches of 1-2 to prevent timeouts
+    const batchSize = 2;
     const workoutBatches: string[][] = [];
     for (let i = 0; i < workoutDayTypes.length; i += batchSize) {
       workoutBatches.push(workoutDayTypes.slice(i, i + batchSize));

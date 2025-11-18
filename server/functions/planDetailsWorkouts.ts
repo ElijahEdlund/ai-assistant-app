@@ -67,7 +67,7 @@ export async function generatePlanDetailsWorkouts(
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          max_tokens: 6000, // Reduce token limit to speed up generation
+          max_tokens: 4000, // Further reduce token limit to speed up generation
           messages: [
             {
               role: 'system',
@@ -113,18 +113,18 @@ Return JSON with this structure:
   }
 }
 
-EXERCISE REQUIREMENTS:
-- howTo: Multi-step explanation (3-6 clear steps) on how to perform the exercise
-- cues: 3-6 SPECIFIC, actionable cues (avoid vague ones like "engage core")
-- commonMistakes: 3-5 DETAILED mistakes with WHY they're bad and WHAT to do instead
-- progressionTips: 2-4 specific tips on how to add load, reps, sets, or difficulty
+EXERCISE REQUIREMENTS (be concise but detailed):
+- howTo: 3-4 clear steps (not 6)
+- cues: 3-4 SPECIFIC cues (not 6)
+- commonMistakes: 2-3 key mistakes with fixes
+- progressionTips: 2-3 practical tips
 
 WORKOUT STRUCTURE:
-- Create appropriate blocks: Main Lifts, Accessories, Finisher (optional)
-- Exercise volume should match sessionLengthMinutes from blueprint
-- Include warmup routine specific to the day's focus
+- Create blocks: Main Lifts, Accessories, Finisher (optional)
+- Exercise count: 3-5 exercises total (match sessionLengthMinutes)
+- Warmup: 3-4 steps (not 6)
 
-Return JSON ONLY, no markdown, no backticks.`,
+IMPORTANT: Be detailed but concise. Focus on quality over quantity. Return JSON ONLY, no markdown, no backticks.`,
             },
             {
               role: 'user',
