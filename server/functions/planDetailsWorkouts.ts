@@ -67,7 +67,7 @@ export async function generatePlanDetailsWorkouts(
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          max_tokens: 8000, // Focused on workout details only
+          max_tokens: 6000, // Reduce token limit to speed up generation
           messages: [
             {
               role: 'system',

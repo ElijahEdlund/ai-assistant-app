@@ -10,7 +10,7 @@
       "maxDuration": 60
     },
     "api/plan-details-workouts.ts": {
-      "maxDuration": 50
+      "maxDuration": 60
     },
     "api/plan-details-recovery.ts": {
       "maxDuration": 30

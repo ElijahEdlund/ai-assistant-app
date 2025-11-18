@@ -146,17 +146,31 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
       .filter((dt: any) => dt.isRecoveryDay)
       .map((dt: any) => dt.id);
 
-    // Call all three endpoints in parallel for maximum speed
-    const [workoutsResponse, recoveryResponse, coachNotesResponse] = await Promise.all([
-      fetch(`${API_URL}/api/plan-details-workouts`, {
+    // Split workout days into batches of 2-3 to prevent timeouts
+    const batchSize = 3;
+    const workoutBatches: string[][] = [];
+    for (let i = 0; i < workoutDayTypes.length; i += batchSize) {
+      workoutBatches.push(workoutDayTypes.slice(i, i + batchSize));
+    }
+
+    // Generate workout details in batches, then combine
+    console.log(`Generating workout details in ${workoutBatches.length} batch(es)...`);
+    const workoutDetailsPromises = workoutBatches.map((batch, index) => {
+      console.log(`Batch ${index + 1}/${workoutBatches.length}: ${batch.join(', ')}`);
+      return fetch(`${API_URL}/api/plan-details-workouts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           assessment, 
           blueprint, 
-          dayTypeIds: workoutDayTypes 
+          dayTypeIds: batch 
         }),
-      }),
+      });
+    });
+
+    // Call all endpoints in parallel (workout batches + recovery + coach notes)
+    const allResponses = await Promise.all([
+      ...workoutDetailsPromises,
       recoveryDayTypes.length > 0 ? fetch(`${API_URL}/api/plan-details-recovery`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -173,11 +187,35 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
       }),
     ]);
 
-    // Check all responses
-    if (!workoutsResponse.ok) {
-      const errorText = await workoutsResponse.text();
-      throw new Error(`Workout details generation failed: ${workoutsResponse.status} ${errorText.substring(0, 200)}`);
+    // Separate responses
+    const workoutResponses = allResponses.slice(0, workoutBatches.length);
+    const recoveryResponse = allResponses[workoutBatches.length];
+    const coachNotesResponse = allResponses[workoutBatches.length + 1];
+
+    // Check workout batch responses
+    for (let i = 0; i < workoutResponses.length; i++) {
+      if (!workoutResponses[i].ok) {
+        const errorText = await workoutResponses[i].text();
+        throw new Error(`Workout details batch ${i + 1} failed: ${workoutResponses[i].status} ${errorText.substring(0, 200)}`);
+      }
     }
+      recoveryDayTypes.length > 0 ? fetch(`${API_URL}/api/plan-details-recovery`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          assessment, 
+          blueprint, 
+          dayTypeIds: recoveryDayTypes 
+        }),
+      }) : Promise.resolve({ ok: true, json: async () => ({}) }),
+      fetch(`${API_URL}/api/plan-details-coach-notes`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assessment, blueprint }),
+      }),
+    ]);
+
+    // Check recovery and coach notes responses
     if (recoveryDayTypes.length > 0 && !recoveryResponse.ok) {
       const errorText = await recoveryResponse.text();
       throw new Error(`Recovery details generation failed: ${recoveryResponse.status} ${errorText.substring(0, 200)}`);
@@ -187,8 +225,9 @@ export async function generate90DayPlan(assessment: Assessment): Promise<Workout
       throw new Error(`Coach notes generation failed: ${coachNotesResponse.status} ${errorText.substring(0, 200)}`);
     }
 
-    // Parse all responses
-    const workoutsDetails = await workoutsResponse.json();
+    // Parse all responses and combine workout batches
+    const workoutDetailsBatches = await Promise.all(workoutResponses.map(r => r.json()));
+    const workoutsDetails = Object.assign({}, ...workoutDetailsBatches);
     const recoveryDetailsRaw = recoveryDayTypes.length > 0 ? await recoveryResponse.json() : {};
     const coachNotes = await coachNotesResponse.json();
     
