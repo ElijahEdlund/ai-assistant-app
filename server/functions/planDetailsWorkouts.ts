@@ -67,7 +67,7 @@ export async function generatePlanDetailsWorkouts(
         },
         body: JSON.stringify({
           model: 'gpt-4o-mini',
-          max_tokens: 4000, // Further reduce token limit to speed up generation
+          max_tokens: 3000, // Single day type - smaller token limit for speed
           messages: [
             {
               role: 'system',
@@ -84,7 +84,7 @@ Return JSON with this structure:
     "trainingFocus": string (1-2 sentences),
     "warmup": {
       "description": string,
-      "steps": string[] (3-6 detailed steps)
+      "steps": string[] (3-4 detailed steps)
     },
     "blocks": [
       {
