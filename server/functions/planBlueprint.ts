@@ -48,7 +48,7 @@ const PlanBlueprintSchema = z.object({
         dayTypeId: z.string(),
       })
     ),
-    programLengthDays: z.number().int().equal(90),
+    programLengthDays: z.number().int().refine(val => val === 90, { message: 'Program length must be 90 days' }),
   }),
   nutritionOverview: z.object({
     dailyMacros: z.object({
