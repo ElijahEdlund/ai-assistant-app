@@ -251,7 +251,7 @@ Return JSON ONLY, no markdown, no backticks.`,
 
       // Validate with Zod
       const validated = PlanDetailsSchema.parse(parsed);
-      return validated;
+      return validated as PlanDetails;
     } catch (error) {
       attempts++;
       if (attempts >= maxAttempts) {
